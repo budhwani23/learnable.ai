@@ -1,0 +1,19 @@
+{
+  "name": "learnable-e2e",
+  "version": "1.0.0",
+  "description": "End-to-end tests (Playwright) for learnable.ai",
+  "scripts": {
+    "test": "playwright test",
+    "test:slow": "playwright test --grep @slow",
+    "report": "playwright show-report"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "@types/node": "^26.6.6"
+  },
+  "private": true
+}
