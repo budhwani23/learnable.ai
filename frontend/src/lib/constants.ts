@@ -4,9 +4,9 @@ export const is_dev = import.meta.env.DEV;
 
 // API Configuration
 export const API_CONFIG = {
-  BASE_URL: is_dev 
-    ? 'http://localhost:8000/api' 
-    : 'https://your-production-domain.com/api', // Update this with your production URL
+  // VITE_API_URL overrides; production serves the API from the same origin as the app.
+  BASE_URL: (import.meta.env.VITE_API_URL as string | undefined)
+    || (is_dev ? 'http://localhost:8000/api' : '/api'),
   TIMEOUT: 300000, // 5 minutes for large file uploads
   MAX_FILE_SIZE: 50 * 1024 * 1024, // 50MB
 };

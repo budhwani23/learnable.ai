@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# One-time setup of the GitHub settings used by .github/workflows/deploy-dev.yml.
+# Run it yourself (it reads secrets from backend/.env and never prints them):
+#
+#   bash scripts/setup-github-deploy.sh
+#
+# Requires the GitHub CLI (gh) logged in with admin access to the repository.
+set -euo pipefail
+
+REPO="${REPO:-budhwani23/learnable.ai}"
+ENV_FILE="${ENV_FILE:-backend/.env}"
+AWS_ROLE_ARN="${AWS_ROLE_ARN:-arn:aws:iam::123932467793:role/learnable-github-deploy-dev}"
+LIGHTSAIL_SERVICE="${LIGHTSAIL_SERVICE:-learnable-dev}"
+
+[ -f "$ENV_FILE" ] || { echo "Missing $ENV_FILE"; exit 1; }
+
+env_value() {  # read KEY=value from the env file without sourcing it
+  grep -E "^$1=" "$ENV_FILE" | tail -1 | cut -d= -f2- | sed -e 's/^["'\'']//' -e 's/["'\'']$//' -e 's/\r$//'
+}
+
+set_secret() {
+  local name="$1" value="$2"
+  if [ -z "$value" ]; then echo "  skip $name (empty)"; return; fi
+  printf '%s' "$value" | gh secret set "$name" --repo "$REPO" --env dev --body - >/dev/null
+  echo "  secret $name set"
+}
+
+echo "Creating the 'dev' environment in $REPO (deployment branch: dev)"
+gh api -X PUT "repos/$REPO/environments/dev" --silent \
+  -F "deployment_branch_policy[protected_branches]=false" \
+  -F "deployment_branch_policy[custom_branch_policies]=true"
+gh api -X POST "repos/$REPO/environments/dev/deployment-branch-policies" --silent \
+  -f name=dev -f type=branch 2>/dev/null || true
+
+echo "Repository variables"
+gh variable set AWS_ROLE_ARN --repo "$REPO" --body "$AWS_ROLE_ARN"
+gh variable set LIGHTSAIL_SERVICE --repo "$REPO" --body "$LIGHTSAIL_SERVICE"
+
+echo "Secrets (environment: dev)"
+# A fresh Django secret for the deployed app; keep an existing one if already set.
+if ! gh secret list --repo "$REPO" --env dev | grep -q '^DJANGO_SECRET_KEY'; then
+  set_secret DJANGO_SECRET_KEY "$(python -c 'import secrets; print(secrets.token_urlsafe(50))')"
+fi
+for key in DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD GOOGLE_API_KEY GOOGLE_OAUTH_CLIENT_ID; do
+  set_secret "$key" "$(env_value "$key")"
+done
+echo "Done. Push to dev (or run the 'Deploy dev' workflow) to deploy."
