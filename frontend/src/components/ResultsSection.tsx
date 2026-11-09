@@ -48,11 +48,17 @@ interface MindmapState {
   zoomLevel: number;
 }
 
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
 // Markdown renderer component
 const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
-  // Simple markdown parser for basic formatting
+  // Simple markdown parser for basic formatting.
+  // The text comes from the AI or from a saved (possibly shared) resource, so escape all
+  // HTML first: only the markup produced below can reach the page.
   const renderMarkdown = (text: string) => {
-    return text
+    return escapeHtml(text || '')
       // Headers
       .replace(/^### (.*$)/gim, '<h3 class="text-lg font-semibold mt-4 mb-2 text-foreground">$1</h3>')
       .replace(/^## (.*$)/gim, '<h2 class="text-xl font-semibold mt-6 mb-3 text-foreground">$1</h2>')
@@ -71,7 +77,11 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
       // Inline code
       .replace(/`([^`]+)`/g, '<code class="bg-muted px-1 py-0.5 rounded text-sm font-mono">$1</code>')
       // Links
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-primary hover:underline" target="_blank" rel="noopener noreferrer">$1</a>')
+      // Links: only http(s) and mailto, so a "javascript:" link can't run code
+      .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, label: string, href: string) =>
+        /^(https?:|mailto:)/i.test(href)
+          ? `<a href="${href}" class="text-primary hover:underline" target="_blank" rel="noopener noreferrer">${label}</a>`
+          : label)
       // Line breaks
       .replace(/\n\n/g, '</p><p class="mb-3">')
       .replace(/\n/g, '<br>')

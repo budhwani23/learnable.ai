@@ -5,6 +5,7 @@ import { useState, useCallback } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useFileUpload } from './useFileUpload';
 import apiClient from '@/lib/api';
+import { toast } from '@/hooks/use-toast';
 import { PROCESSING_STATES } from '@/lib/constants';
 import type { 
   ProcessingStatus, 
@@ -24,6 +25,17 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
 
   const [results, setResults] = useState<ProcessingResults | null>(null);
   const { updateFileStatus } = useFileUpload();
+
+  // Tell the user when generation fails (quota, server error, network...), instead of
+  // silently re-enabling the button.
+  const reportFailure = useCallback((error: Error) => {
+    const raw = error?.message || '';
+    const message = /\b429\b|quota|ResourceExhausted|rate.?limit/i.test(raw)
+      ? 'The AI service is busy or out of quota right now. Please try again in a few minutes.'
+      : (raw || 'Something went wrong. Please try again.').slice(0, 300);
+    setProcessingStatus({ state: PROCESSING_STATES.ERROR, progress: 0, message: '', error: message } as ProcessingStatus);
+    toast({ title: "Couldn't generate that", description: message, variant: 'destructive' });
+  }, []);
 
   // Update processing status
   const updateStatus = useCallback((
@@ -99,7 +111,7 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
       updateStatus(PROCESSING_STATES.SUCCESS, 100, 'All resources generated successfully!');
     },
     onError: (error: Error) => {
-      updateStatus(PROCESSING_STATES.ERROR, 0, '', error.message);
+      reportFailure(error);
     },
   });
 
@@ -138,7 +150,7 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
       updateStatus(PROCESSING_STATES.SUCCESS, 100, 'Summary generated successfully!');
     },
     onError: (error: Error) => {
-      updateStatus(PROCESSING_STATES.ERROR, 0, '', error.message);
+      reportFailure(error);
     },
   });
 
@@ -179,7 +191,7 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
       updateStatus(PROCESSING_STATES.SUCCESS, 100, 'Mindmap generated successfully!');
     },
     onError: (error: Error) => {
-      updateStatus(PROCESSING_STATES.ERROR, 0, '', error.message);
+      reportFailure(error);
     },
   });
 
@@ -221,7 +233,7 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
       updateStatus(PROCESSING_STATES.SUCCESS, 100, 'Quiz generated successfully!');
     },
     onError: (error: Error) => {
-      updateStatus(PROCESSING_STATES.ERROR, 0, '', error.message);
+      reportFailure(error);
     },
   });
 
@@ -263,7 +275,7 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
       updateStatus(PROCESSING_STATES.SUCCESS, 100, 'Flashcards generated successfully!');
     },
     onError: (error: Error) => {
-      updateStatus(PROCESSING_STATES.ERROR, 0, '', error.message);
+      reportFailure(error);
     },
   });
 

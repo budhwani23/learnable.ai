@@ -1,3 +1,6 @@
+import json
+from typing import Optional
+
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.db import IntegrityError
@@ -107,12 +110,23 @@ def google_login(request, payload: GoogleLoginIn):
 
 
 @router.post("/auth/refresh", response={200: TokenOut, 401: ErrorOut})
-def refresh(request, refresh: str):
+def refresh(request, refresh: Optional[str] = None):
     """
     Exchange a valid refresh token for a new pair of tokens.
+    Accepts the token as a JSON body {"refresh": "..."} (what the frontend sends)
+    or as a ?refresh= query parameter.
     """
+    token = refresh
+    if not token and request.body:
+        try:
+            body = json.loads(request.body)
+            token = body.get("refresh") if isinstance(body, dict) else None
+        except (ValueError, UnicodeDecodeError):
+            token = None
+    if not token:
+        return 401, {"detail": "Refresh token required"}
     try:
-        payload = decode_token(refresh)
+        payload = decode_token(token)
         if payload.get("type") != "refresh":
             return 401, {"detail": "Invalid token type"}
 
@@ -143,11 +157,17 @@ def me(request):
     }
 
 
-@router.post("/credits/add", auth=jwt_auth)
+_STAFF_ONLY = {"detail": "Only administrators can change credit balances."}
+
+
+@router.post("/credits/add", auth=jwt_auth, response={200: dict, 400: ErrorOut, 403: ErrorOut})
 def credits_add(request, payload: CreditChangeIn):
     """
-    Add credits to the current user (for testing or via payment webhook).
+    Add credits to the current user. Staff only: ordinary users must not be able
+    to grant themselves credits (payments should credit accounts server-side).
     """
+    if not request.auth.is_staff:
+        return 403, _STAFF_ONLY
     if payload.amount <= 0:
         return 400, {"detail": "Amount must be positive"}
 
@@ -155,11 +175,13 @@ def credits_add(request, payload: CreditChangeIn):
     return {"credits": new_balance}
 
 
-@router.post("/credits/deduct", auth=jwt_auth)
+@router.post("/credits/deduct", auth=jwt_auth, response={200: dict, 400: ErrorOut, 403: ErrorOut})
 def credits_deduct(request, payload: CreditChangeIn):
     """
-    Deduct credits from the current user (manual operation).
+    Deduct credits from the current user (manual operation, staff only).
     """
+    if not request.auth.is_staff:
+        return 403, _STAFF_ONLY
     if payload.amount <= 0:
         return 400, {"detail": "Amount must be positive"}
 

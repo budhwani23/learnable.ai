@@ -62,6 +62,42 @@ class RoleAuthTests(TestCase):
         self.assertEqual(r.status_code, 401)
 
 
+class CreditsAndRefreshTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user("plain", password="x" * 10)
+        self.staff = User.objects.create_user("admin1", password="x" * 10, is_staff=True)
+
+    def token(self, user):
+        return create_tokens(user.id, user.username)
+
+    def test_ordinary_user_cannot_add_or_deduct_credits(self):
+        access = self.token(self.user)[0]
+        for path in ("/api/users/credits/add", "/api/users/credits/deduct"):
+            r = post(self.client, path, {"amount": 1000}, access)
+            self.assertEqual(r.status_code, 403, path)
+        me = self.client.get("/api/users/auth/me", HTTP_AUTHORIZATION=f"Bearer {access}").json()
+        self.assertEqual(me["credits"], 100)
+
+    def test_staff_can_add_credits(self):
+        r = post(self.client, "/api/users/credits/add", {"amount": 50}, self.token(self.staff)[0])
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["credits"], 150)
+
+    def test_refresh_accepts_json_body_and_query(self):
+        refresh = self.token(self.user)[1]
+        self.assertEqual(post(self.client, "/api/users/auth/refresh", {"refresh": refresh}).status_code, 200)
+        r = self.client.post(f"/api/users/auth/refresh?refresh={refresh}")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("access", r.json())
+
+    def test_refresh_rejects_missing_access_and_garbage_tokens(self):
+        access = self.token(self.user)[0]
+        self.assertEqual(post(self.client, "/api/users/auth/refresh", {}).status_code, 401)
+        self.assertEqual(post(self.client, "/api/users/auth/refresh", {"refresh": access}).status_code, 401)
+        self.assertEqual(post(self.client, "/api/users/auth/refresh", {"refresh": "garbage"}).status_code, 401)
+
+
 class TeacherOnlySharingTests(TestCase):
     def setUp(self):
         self.client = Client()

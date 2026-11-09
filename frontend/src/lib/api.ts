@@ -169,13 +169,21 @@ class ApiClient {
             }
           } else {
             console.error('XHR HTTP error - status:', xhr.status, 'response:', xhr.responseText);
-            reject(new Error(`HTTP error! status: ${xhr.status}`));
+            // Prefer the server's own reason ({error} or {detail}) over a bare status code.
+            let reason = '';
+            try {
+              const body = JSON.parse(xhr.responseText);
+              reason = typeof body?.error === 'string' ? body.error : typeof body?.detail === 'string' ? body.detail : '';
+            } catch { /* not JSON */ }
+            reject(new Error(reason || (xhr.status === 401
+              ? 'Your session has expired. Please sign in again.'
+              : `The server couldn't complete this request (error ${xhr.status}). Please try again.`)));
           }
         });
 
         xhr.addEventListener('error', () => {
           console.error('XHR error occurred');
-          reject(new Error('Network error occurred'));
+          reject(new Error("Couldn't reach the server. Check your connection and try again."));
         });
 
         xhr.addEventListener('timeout', () => {
