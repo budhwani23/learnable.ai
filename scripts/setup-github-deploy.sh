@@ -6,6 +6,8 @@
 #
 # Requires the GitHub CLI (gh) logged in with admin access to the repository.
 set -euo pipefail
+# Git for Windows' bash.exe started directly (not as a login shell) has no /usr/bin on PATH.
+export PATH="/usr/bin:/bin:$PATH"
 
 REPO="${REPO:-budhwani23/learnable.ai}"
 ENV_FILE="${ENV_FILE:-backend/.env}"
