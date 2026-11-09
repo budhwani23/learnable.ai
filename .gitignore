@@ -431,3 +431,6 @@ __marimo__/
 .streamlit/secrets.toml
 # Generated explainer videos / uploads
 backend/media/
+
+# Presenton sidecar runtime data (docker volume)
+presenton_data/
