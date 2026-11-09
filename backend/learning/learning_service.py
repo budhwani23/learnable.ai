@@ -86,23 +86,11 @@ class LearningService:
         Uses structured output schema for robust parsing.
         """
         try:
-            # Use structured output to ensure predictable question schema
-            structured_llm = self.gemini_service.llm.with_structured_output(MCQQuizStructuredOutput)
             prompt = (
                 f"Access and analyze the content at the following YouTube URL and create {num_questions} "
                 f"multiple choice questions with explanations. URL: {url}"
             )
-            result = structured_llm.invoke(prompt)
-
-            # Convert structured output to expected format
-            questions = []
-            for q in result.questions:
-                questions.append(MCQQuestion(
-                    question=q.question,
-                    options=[q.option_a, q.option_b, q.option_c, q.option_d],
-                    correct_answer=q.correct_answer,
-                    explanation=q.explanation
-                ))
+            questions = self._invoke_mcq(prompt, num_questions)
 
             return {
                 "success": True,
@@ -213,20 +201,9 @@ class LearningService:
             if error:
                 return {"success": False, "error": error}
 
-            structured_llm = self.gemini_service.llm.with_structured_output(MCQQuizStructuredOutput)
             prompt = f"{get_mcq_quiz_prompt(num_questions)}\n\nContent:\n{content_text}"
-            result = structured_llm.invoke(prompt)
+            questions = self._invoke_mcq(prompt, num_questions)
 
-            questions = [
-                MCQQuestion(
-                    question=q.question,
-                    options=[q.option_a, q.option_b, q.option_c, q.option_d],
-                    correct_answer=q.correct_answer,
-                    explanation=q.explanation,
-                )
-                for q in result.questions
-            ]
-            
             return {
                 "success": True,
                 "quiz": questions,
@@ -284,6 +261,56 @@ class LearningService:
         if response.endswith("```"):
             response = response[:-3]
         return response.strip()
+
+    def _invoke_mcq(self, task_prompt: str, num_questions: int) -> List[MCQQuestion]:
+        """
+        Generate MCQ questions from a fully-formed task prompt.
+
+        Tries LangChain structured output first. Gemini's structured output can
+        return ``None`` when the model does not emit a tool/function call, which
+        previously caused ``'NoneType' object has no attribute 'questions'``.
+        When that happens we fall back to requesting raw JSON and parsing it.
+        """
+        structured_llm = self.gemini_service.llm.with_structured_output(MCQQuizStructuredOutput)
+        result = structured_llm.invoke(task_prompt)
+
+        if result is not None and getattr(result, "questions", None):
+            return [
+                MCQQuestion(
+                    question=q.question,
+                    options=[q.option_a, q.option_b, q.option_c, q.option_d],
+                    correct_answer=q.correct_answer,
+                    explanation=q.explanation,
+                )
+                for q in result.questions
+            ]
+
+        # Fallback: ask for raw JSON and parse it manually.
+        json_prompt = (
+            f"{task_prompt}\n\n"
+            "CRITICAL: Return ONLY a valid JSON array, with no other text or markdown. "
+            f"Create exactly {num_questions} questions. Each array element must use this exact shape:\n"
+            '{"question": "...", "options": ["Option A text", "Option B text", '
+            '"Option C text", "Option D text"], "correct_answer": "A", "explanation": "..."}'
+        )
+        raw = self.gemini_service.run_raw(json_prompt)
+        cleaned = self._clean_json_response(raw if isinstance(raw, str) else str(raw))
+        data = json.loads(cleaned)
+        if isinstance(data, dict) and "questions" in data:
+            data = data["questions"]
+
+        questions = [
+            MCQQuestion(
+                question=item["question"],
+                options=item["options"],
+                correct_answer=item["correct_answer"],
+                explanation=item.get("explanation", ""),
+            )
+            for item in data
+        ]
+        if not questions:
+            raise ValueError("Model returned no questions.")
+        return questions
     
     def generate_mindmap(self, topic: str) -> Dict[str, Any]:
         """
@@ -333,10 +360,6 @@ class LearningService:
             Dict with success status and quiz data or error message
         """
         try:
-            # Use structured output for MCQ generation
-            structured_llm = self.gemini_service.llm.with_structured_output(MCQQuizStructuredOutput)
-            
-            # Create a simple prompt for structured output
             simple_prompt = f"""
             Based on the following content, create {num_questions} multiple choice questions.
             
@@ -348,19 +371,9 @@ class LearningService:
             - Include helpful explanations
             - Cover different aspects of the content
             """
-            
-            result = structured_llm.invoke(simple_prompt)
-            
-            # Convert structured output to the expected format
-            questions = []
-            for q in result.questions:
-                questions.append(MCQQuestion(
-                    question=q.question,
-                    options=[q.option_a, q.option_b, q.option_c, q.option_d],
-                    correct_answer=q.correct_answer,
-                    explanation=q.explanation
-                ))
-            
+
+            questions = self._invoke_mcq(simple_prompt, num_questions)
+
             return {
                 "success": True,
                 "quiz": questions

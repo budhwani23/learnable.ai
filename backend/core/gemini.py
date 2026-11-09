@@ -12,7 +12,7 @@ load_dotenv()
 
 
 class GeminiService:
-    def __init__(self, model_name: str = "gemini-pro", temperature: float = 0.7):
+    def __init__(self, model_name: str = "gemini-3-flash-preview", temperature: float = 0.7):
         """
         Initialize Gemini client through LangChain.
         Ensures GOOGLE_API_KEY is present in environment.
@@ -23,7 +23,7 @@ class GeminiService:
         self.model_name = model_name
         self.llm: BaseChatModel = ChatGoogleGenerativeAI(
             model=model_name,
-            temperature=temperature
+            temperature=temperature,
         )
         self.parser = StrOutputParser()
 

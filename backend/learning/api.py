@@ -32,7 +32,7 @@ load_dotenv()
 router = Router(auth=JWTAuth())
 
 # Initialize services
-gemini_service = GeminiService(model_name="gemini-2.5-flash", temperature=0.7)
+gemini_service = GeminiService(model_name="gemini-3-flash-preview", temperature=0.7)
 media_processor = MediaProcessor(gemini_service)
 learning_service = LearningService(gemini_service)
 
