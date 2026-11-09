@@ -29,7 +29,11 @@ SECRET_KEY = 'django-insecure-bwo-a_=+mg1em-mg2^5*_5vi1d++$b)^@!7m#xf@b-0^yxh6n(
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+# Comma-separated override. The dev default also allows host.docker.internal so the
+# Presenton container can call the backend's image endpoint.
+ALLOWED_HOSTS = [h.strip() for h in os.getenv(
+    "DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,[::1],host.docker.internal"
+).split(",") if h.strip()]
 
 
 # Application definition

@@ -6,6 +6,9 @@
 #
 #   docker compose --env-file backend/.env up -d presenton
 #
+# The backend must be running (port 8000) for slide images: Presenton calls its
+# /api/presentations/image-proxy endpoint.
+#
 # Local development runs Presenton in single-user mode (DISABLE_AUTH) and binds
 # it to 127.0.0.1 only. For any shared/production deployment, remove
 # DISABLE_AUTH, finish the admin setup in Presenton's UI, create an API key under
@@ -23,10 +26,15 @@ services:
       LLM: google
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:?set GOOGLE_API_KEY in backend/.env}
       GOOGLE_MODEL: ${PRESENTON_GOOGLE_MODEL:-models/gemini-3.5-flash-lite}
-      IMAGE_PROVIDER: ${PRESENTON_IMAGE_PROVIDER:-gemini_flash}
+      # Slide images go through the backend's /image-proxy endpoint, which tries
+      # gemini-3.1-flash-image and falls back to gemini-3.1-flash-lite-image.
+      IMAGE_PROVIDER: ${PRESENTON_IMAGE_PROVIDER:-openai_compatible}
+      OPENAI_COMPAT_IMAGE_BASE_URL: ${PRESENTON_IMAGE_BASE_URL:-http://host.docker.internal:8000/api/presentations/image-proxy/v1}
+      OPENAI_COMPAT_IMAGE_API_KEY: ${PRESENTON_IMAGE_PROXY_KEY:?set PRESENTON_IMAGE_PROXY_KEY in backend/.env}
+      OPENAI_COMPAT_IMAGE_MODEL: gemini-fallback
       PRESENTON_PUBLIC_URL: http://localhost:5001
       # Keep student content private: don't publish decks to Presenton's community gallery.
       PRESENTON_COMMUNITY_ENABLED: "false"
       DISABLE_AUTH: ${PRESENTON_DISABLE_AUTH:-true}
-      # Image generation uses the same Gemini key; on the free tier it burns the per-minute quota.
+      # Set PRESENTON_DISABLE_IMAGES=true to use placeholders (saves Gemini quota).
       DISABLE_IMAGE_GENERATION: ${PRESENTON_DISABLE_IMAGES:-false}
