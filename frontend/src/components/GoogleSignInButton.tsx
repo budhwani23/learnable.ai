@@ -1,36 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { googleLogin } from "@/lib/library";
-
-const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
-const GIS_SRC = "https://accounts.google.com/gsi/client";
-
-declare global {
-  interface Window {
-    google?: {
-      accounts: {
-        id: {
-          initialize: (options: object) => void;
-          renderButton: (el: HTMLElement, options: object) => void;
-        };
-      };
-    };
-  }
-}
-
-let gisPromise: Promise<void> | null = null;
-const loadGis = () => {
-  if (!gisPromise) {
-    gisPromise = new Promise((resolve, reject) => {
-      const s = document.createElement("script");
-      s.src = GIS_SRC;
-      s.async = true;
-      s.onload = () => resolve();
-      s.onerror = () => reject(new Error("Could not load Google Sign-In"));
-      document.head.appendChild(s);
-    });
-  }
-  return gisPromise;
-};
+import { GOOGLE_CLIENT_ID as CLIENT_ID, loadGis } from "@/lib/gis";
 
 /** "Sign in with Google" (Google Identity Services). Hidden when no client id is configured. */
 export default function GoogleSignInButton({ onSignedIn }: { onSignedIn: () => void }) {

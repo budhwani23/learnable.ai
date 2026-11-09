@@ -11,6 +11,7 @@ import MermaidDiagram from "@/components/MermaidDiagram";
 import { convertMindmapToMermaid } from "@/utils/mindmapToMermaid";
 import MindmapViewer from "@/components/MindmapViewer";
 import ShareToClassButton from "@/components/ShareToClassButton";
+import ExportMenu from "@/components/ExportMenu";
 import { defaultTitle, payloadFor, type ResourceType } from "@/lib/library";
 import type { MCQQuestion } from "@/lib/types";
 
@@ -767,9 +768,17 @@ const ResultsSection: React.FC<ResultsSectionProps> = ({ results, activeTab, onR
     const sharePayload = payloadFor(shareType, results);
     return (
       <div className="max-w-6xl mx-auto">
-        {allowShare && sharePayload && (
-          <div className="flex justify-end mb-3">
-            <ShareToClassButton type={shareType} payload={sharePayload} defaultTitle={defaultTitle(shareType, results)} />
+        {sharePayload && (allowShare || shareType === "quiz" || shareType === "flashcards") && (
+          <div className="flex justify-end gap-2 mb-3">
+            {shareType === "quiz" && results?.quiz?.quiz?.length ? (
+              <ExportMenu type="quiz" title={defaultTitle("quiz", results)} data={results.quiz} />
+            ) : null}
+            {shareType === "flashcards" && results?.flashcards?.flashcards?.length ? (
+              <ExportMenu type="flashcards" title={defaultTitle("flashcards", results)} data={results.flashcards} />
+            ) : null}
+            {allowShare && (
+              <ShareToClassButton type={shareType} payload={sharePayload} defaultTitle={defaultTitle(shareType, results)} />
+            )}
           </div>
         )}
         {renderActiveTabContent()}
