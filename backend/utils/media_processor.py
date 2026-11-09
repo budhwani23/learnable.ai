@@ -199,8 +199,8 @@ class MediaProcessor:
         temp_file_path = self._save_uploaded_file(document_file, file_extension)
         try:
             text = self._extract_text_from_document(temp_file_path, file_extension)
-            if not text:
-                return None, "Failed to extract text from document."
+            if not text or not text.strip():
+                return None, "Could not find any readable text in this document."
             summary_message = self._create_summary_message(text)
             summary = self.gemini_service.llm.invoke(summary_message).content
             return summary, None
@@ -210,18 +210,45 @@ class MediaProcessor:
             if os.path.exists(temp_file_path):
                 os.unlink(temp_file_path)
 
+    # Gemini's inline request limit is ~20MB; base64 inflates by ~4/3.
+    MAX_INLINE_PDF_BYTES = 14 * 1024 * 1024
+
     def _extract_text_from_document(self, file_path: str, file_extension: str) -> str:
         """Extract text from PDF or Word document."""
         if file_extension == '.pdf':
             with open(file_path, 'rb') as f:
                 reader = PyPDF2.PdfReader(f)
                 text = "\n".join(page.extract_text() or '' for page in reader.pages)
+            if not text.strip():
+                # Scanned / image-only PDF (e.g. exported slides): no text layer for
+                # PyPDF2, so let Gemini read the pages visually.
+                text = self._read_pdf_with_gemini(file_path)
             return text
         elif file_extension in ['.docx', '.doc']:
             doc = docx.Document(file_path)
             text = "\n".join([para.text for para in doc.paragraphs])
             return text
         return ""
+
+    def _read_pdf_with_gemini(self, file_path: str) -> str:
+        """Transcribe an image-based PDF with Gemini's native PDF understanding."""
+        size = os.path.getsize(file_path)
+        if size > self.MAX_INLINE_PDF_BYTES:
+            raise Exception(
+                "This PDF has no selectable text (it looks scanned or image-based) and is too large "
+                f"to read visually ({size // (1024 * 1024)}MB, limit {self.MAX_INLINE_PDF_BYTES // (1024 * 1024)}MB). "
+                "Try a smaller PDF or one with selectable text."
+            )
+        logger.info("PDF has no text layer; reading it with Gemini (%s bytes)", size)
+        message = self._create_transcription_message(
+            self._encode_file_to_base64(file_path),
+            "application/pdf",
+            "This PDF has no text layer (scanned pages or slides saved as images). Read every page "
+            "in order and transcribe all visible text faithfully. For diagrams, charts, tables and "
+            "figures, add a short factual description of what they show. Output plain text only, "
+            "with a '--- Page N ---' line before each page.",
+        )
+        return self.gemini_service.llm.invoke(message).content or ""
 
     def summarize_text(self, text: str) -> Tuple[str, Optional[str]]:
         """
@@ -341,8 +368,8 @@ class MediaProcessor:
         temp_file_path = self._save_uploaded_file(document_file, file_extension)
         try:
             text = self._extract_text_from_document(temp_file_path, file_extension)
-            if not text:
-                return None, "Failed to extract text from document."
+            if not text or not text.strip():
+                return None, "Could not find any readable text in this document."
             return text, None
         except Exception as e:
             return None, f"Error extracting content from document file: {str(e)}"
