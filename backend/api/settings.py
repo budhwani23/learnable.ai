@@ -29,7 +29,9 @@ SECRET_KEY = 'django-insecure-bwo-a_=+mg1em-mg2^5*_5vi1d++$b)^@!7m#xf@b-0^yxh6n(
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['localhost', '127.0.0.1'] + [
+    h.strip() for h in os.getenv('EXTRA_ALLOWED_HOSTS', '').split(',') if h.strip()
+]  # add a tunnel / production host for LMS launches via EXTRA_ALLOWED_HOSTS
 
 
 # Application definition
@@ -45,6 +47,9 @@ INSTALLED_APPS = [
     'learning',
     'content',
     'users',  # NEW: app for authentication and credit management
+    'library',
+    'lti',
+    'pylti1p3.contrib.django.lti1p3_tool_config',  # LMS platform registrations + tool keys
 ]
 
 MIDDLEWARE = [
@@ -251,3 +256,23 @@ JWT_REFRESH_TTL_SECONDS = int(os.getenv('JWT_REFRESH_TTL_SECONDS', 60 * 60 * 24 
 CREDITS_PER_1K_INPUT_TOKENS = float(os.getenv('CREDITS_PER_1K_INPUT_TOKENS', 1.0))
 CREDITS_PER_1K_OUTPUT_TOKENS = float(os.getenv('CREDITS_PER_1K_OUTPUT_TOKENS', 2.0))
 MIN_CREDIT_DEBIT_PER_CALL = int(os.getenv('MIN_CREDIT_DEBIT_PER_CALL', 1))
+
+# =========================
+# LMS integrations (LTI 1.3 + Google)
+# =========================
+# Where LTI launches send the browser after sign-in.
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:8080')
+# LMSs frame the tool in an iframe on another site. PyLTI1p3 sets its own SameSite=None
+# state cookie on HTTPS requests; browsers only accept that over HTTPS, so test LMS
+# launches through an HTTPS tunnel. Cross-site Django session cookies are opt-in so
+# admin login on plain http://localhost keeps working.
+if os.getenv('CROSS_SITE_COOKIES', 'false').lower() in ('1', 'true', 'yes'):
+    SESSION_COOKIE_SAMESITE = 'None'
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SAMESITE = 'None'
+    CSRF_COOKIE_SECURE = True
+# Behind a TLS-terminating tunnel/proxy, trust its X-Forwarded-Proto so launches are seen as HTTPS.
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+CSRF_TRUSTED_ORIGINS = [o.strip() for o in os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',') if o.strip()]
+# OAuth client id (web) used to verify Google Sign-In ID tokens for shared links.
+GOOGLE_OAUTH_CLIENT_ID = os.getenv('GOOGLE_OAUTH_CLIENT_ID', '')

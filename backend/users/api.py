@@ -3,7 +3,7 @@ from django.contrib.auth.models import User
 from django.db import IntegrityError
 from ninja.router import Router
 
-from .schemas import RegisterIn, LoginIn, TokenOut, UserOut, CreditChangeIn, ErrorOut
+from .schemas import RegisterIn, LoginIn, GoogleLoginIn, TokenOut, UserOut, CreditChangeIn, ErrorOut
 from .auth import create_tokens, decode_token
 from .security import jwt_auth
 from .services import add_credits, deduct_credits, get_profile
@@ -43,6 +43,48 @@ def login(request, payload: LoginIn):
     user = authenticate(username=payload.username, password=payload.password)
     if not user:
         return 401, {"detail": "Invalid credentials"}
+
+    access, refresh = create_tokens(user.id, user.username)
+    return {"access": access, "refresh": refresh}
+
+
+@router.post("/auth/google", response={200: TokenOut, 401: ErrorOut, 503: ErrorOut})
+def google_login(request, payload: GoogleLoginIn):
+    """
+    Sign in with a Google ID token (used by students opening a link shared to
+    Google Classroom). Matches an existing account by verified email, else creates one.
+    """
+    from django.conf import settings
+    from google.auth.transport import requests as google_requests
+    from google.oauth2 import id_token
+
+    client_id = settings.GOOGLE_OAUTH_CLIENT_ID
+    if not client_id:
+        return 503, {"detail": "Google Sign-In is not configured on this server"}
+    try:
+        info = id_token.verify_oauth2_token(payload.credential, google_requests.Request(), client_id)
+    except ValueError:
+        return 401, {"detail": "Invalid Google sign-in"}
+    email = (info.get("email") or "").lower()
+    if not email or not info.get("email_verified"):
+        return 401, {"detail": "Your Google account email is not verified"}
+
+    # Only reuse accounts that were themselves created by Google sign-in (no usable
+    # password). Password accounts are registered with unverified emails, so matching
+    # them would let someone pre-register a student's email and capture their activity.
+    user = next((u for u in User.objects.filter(email__iexact=email).order_by("id")
+                 if not u.has_usable_password() and not u.lti_links.exists()), None)
+    if not user:
+        base = email.split("@")[0][:140] or "student"
+        username, n = base, 1
+        while User.objects.filter(username=username).exists():
+            n += 1
+            username = f"{base}{n}"
+        user = User(username=username, email=email,
+                    first_name=(info.get("given_name") or "")[:150],
+                    last_name=(info.get("family_name") or "")[:150])
+        user.set_unusable_password()
+        user.save()
 
     access, refresh = create_tokens(user.id, user.username)
     return {"access": access, "refresh": refresh}

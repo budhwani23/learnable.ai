@@ -10,6 +10,8 @@ import { useState, useEffect, useRef } from "react";
 import MermaidDiagram from "@/components/MermaidDiagram";
 import { convertMindmapToMermaid } from "@/utils/mindmapToMermaid";
 import MindmapViewer from "@/components/MindmapViewer";
+import ShareToClassButton from "@/components/ShareToClassButton";
+import { defaultTitle, payloadFor, type ResourceType } from "@/lib/library";
 import type { MCQQuestion } from "@/lib/types";
 
 interface ResultsSectionProps {
@@ -17,6 +19,8 @@ interface ResultsSectionProps {
   activeTab?: string;
   onRegenerate?: () => void;
   isRegenerating?: boolean;
+  /** Show "Share to class" (saving to the library). Off when viewing an already-shared resource. */
+  allowShare?: boolean;
 }
 
 // Quiz state interface
@@ -87,7 +91,7 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
   );
 };
 
-const ResultsSection: React.FC<ResultsSectionProps> = ({ results, activeTab, onRegenerate, isRegenerating = false }) => {
+const ResultsSection: React.FC<ResultsSectionProps> = ({ results, activeTab, onRegenerate, isRegenerating = false, allowShare = false }) => {
   const { toast } = useToast();
   const [quizState, setQuizState] = useState<QuizState>({
     currentQuestion: 0,
@@ -759,8 +763,15 @@ const ResultsSection: React.FC<ResultsSectionProps> = ({ results, activeTab, onR
       }
     };
 
+    const shareType = activeTab as ResourceType;
+    const sharePayload = payloadFor(shareType, results);
     return (
       <div className="max-w-6xl mx-auto">
+        {allowShare && sharePayload && (
+          <div className="flex justify-end mb-3">
+            <ShareToClassButton type={shareType} payload={sharePayload} defaultTitle={defaultTitle(shareType, results)} />
+          </div>
+        )}
         {renderActiveTabContent()}
       </div>
     );

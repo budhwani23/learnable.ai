@@ -9,7 +9,9 @@ import Header from '@/components/Header';
 
 export default function Login() {
   const navigate = useNavigate();
-  const redirect = '/input';
+  // Honour ?redirect=/r/<id> (shared class links); only same-site paths, never "//host".
+  const requested = new URLSearchParams(window.location.search).get('redirect') || '';
+  const redirect = requested.startsWith('/') && !requested.startsWith('//') ? requested : '/input';
   const { login } = useAuth();
 
   const [username, setU] = useState('');

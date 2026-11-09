@@ -17,8 +17,14 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 from api.api import api
+from lti import views as lti_views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', api.urls),
+    # LTI 1.3 endpoints called by the LMS (Moodle, Canvas, Blackboard, Brightspace, Schoology)
+    path('lti/login/', lti_views.login, name='lti-login'),
+    path('lti/launch/', lti_views.launch, name='lti-launch'),
+    path('lti/jwks/', lti_views.jwks, name='lti-jwks'),
+    path('lti/config/', lti_views.config, name='lti-config'),
 ]

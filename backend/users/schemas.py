@@ -14,6 +14,11 @@ class LoginIn(BaseModel):
     password: str
 
 
+class GoogleLoginIn(BaseModel):
+    """Google Sign-In ID token (credential) from Google Identity Services."""
+    credential: str
+
+
 class TokenOut(BaseModel):
     """Response schema for token pair."""
     access: str
@@ -24,7 +29,8 @@ class UserOut(BaseModel):
     """Public user info together with current credits."""
     id: int
     username: str
-    email: EmailStr
+    # Plain str: users created from an LMS launch may have no email shared by the LMS.
+    email: str = ""
     credits: int
 
 

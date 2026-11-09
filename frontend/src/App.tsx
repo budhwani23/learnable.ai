@@ -10,6 +10,8 @@ import Input from "./pages/Input";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import ResourceView from "./pages/ResourceView";
+import { LtiBridge, LtiPicker } from "./pages/LtiLaunch";
 import { useAuth } from "@/hooks/useAuth";
 
 const queryClient = new QueryClient();
@@ -35,6 +37,10 @@ const App = () => {
             />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            {/* Shared class resources + LMS (LTI 1.3) launches */}
+            <Route path="/r/:id" element={<ResourceView />} />
+            <Route path="/lti" element={<LtiBridge />} />
+            <Route path="/lti/pick" element={<LtiPicker />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

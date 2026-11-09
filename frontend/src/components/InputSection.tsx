@@ -385,7 +385,7 @@ const InputSection: React.FC<InputSectionProps> = ({
                   {hasResultsForTab() ? (
                           <>
                    <div className="space-y-4">
-  <ResultsSection 
+  <ResultsSection allowShare
     results={results} 
     activeTab="summary" 
     onRegenerate={handleGenerateContent}
@@ -434,7 +434,7 @@ const InputSection: React.FC<InputSectionProps> = ({
 
                 <TabsContent value="mindmap" className="space-y-4">
                   {hasResultsForTab() ? (
-                    <ResultsSection 
+                    <ResultsSection allowShare
                       results={results} 
                       activeTab="mindmap" 
                       onRegenerate={handleGenerateContent}
@@ -467,7 +467,7 @@ const InputSection: React.FC<InputSectionProps> = ({
 
                 <TabsContent value="quiz" className="space-y-4">
                   {hasResultsForTab() ? (
-                    <ResultsSection 
+                    <ResultsSection allowShare
                       results={results} 
                       activeTab="quiz" 
                       onRegenerate={handleGenerateContent}
@@ -500,7 +500,7 @@ const InputSection: React.FC<InputSectionProps> = ({
 
                 <TabsContent value="flashcards" className="space-y-4">
                   {hasResultsForTab() ? (
-                    <ResultsSection 
+                    <ResultsSection allowShare
                       results={results} 
                       activeTab="flashcards" 
                       onRegenerate={handleGenerateContent}

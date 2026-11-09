@@ -6,6 +6,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Clapperboard, Download, Loader2, RotateCcw, AlertCircle, ScrollText } from "lucide-react";
 import type { ExplainerVideoState } from "@/hooks/useExplainerVideo";
+import ShareToClassButton from "@/components/ShareToClassButton";
 
 interface ExplainerVideoPanelProps {
   explainer: ExplainerVideoState;
@@ -74,6 +75,7 @@ const ExplainerVideoPanel: React.FC<ExplainerVideoPanelProps> = ({
         )}
 
         <div className="flex justify-end gap-2">
+          <ShareToClassButton type="video" explainerJobId={job.id} defaultTitle={job.title || "Explainer video"} />
           {videoUrl && (
             <Button variant="secondary" asChild>
               <a href={videoUrl} download={fileName}>
