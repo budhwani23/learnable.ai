@@ -12,7 +12,6 @@ import {
   Type, 
   Play, 
   FileText, 
-  AlertTriangle, 
   Loader2, 
   X, 
   File, 
@@ -37,7 +36,6 @@ import { ArrowRight, Video, Headphones, Target, Menu,
   Zap,
   Heart, } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useApiKey } from "@/hooks/useApiKey";
 import FileUpload from "@/components/ui/file-upload";
 import { SUPPORTED_FILE_TYPES } from "@/lib/constants";
 import type { useFileUpload } from "@/hooks/useFileUpload";
@@ -90,27 +88,13 @@ const InputSection: React.FC<InputSectionProps> = ({
       focus,
     });
   };
-  
-  // Custom hooks
-  const { hasApiKey, validateApiKey } = useApiKey();
 
   // Check if processing is in progress
   const isProcessing = processingStatus.state === 'processing' || processingStatus.state === 'uploading';
 
   // Handle content generation based on active tab and input method
   const handleGenerateContent = () => {
-    if (!hasApiKey) {
-      toast({
-        title: "API Key Required",
-        description: "Please configure your Gemini API key in Settings.",
-        variant: "destructive",
-      });
-      return;
-    }
-
     try {
-      validateApiKey();
-      
       switch (activeTab) {
         case "summary":
           if ((inputMethod === "text" && textInput.trim()) || (inputMethod === "file" && uploadedFiles.length > 0) || (inputMethod === "url" && urlInput.trim())) {
@@ -341,14 +325,6 @@ const InputSection: React.FC<InputSectionProps> = ({
               </Tabs>
             </div>
 
-            {!hasApiKey && (
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-center gap-3">
-                <AlertTriangle className="h-5 w-5 text-amber-600" />
-                <p className="text-sm text-amber-800">
-                  <strong>API Key Required:</strong> Please configure your Gemini API key in Settings.
-                </p>
-              </div>
-            )}
           </Card>
 
           {/* Right Side - Content Generation */}
@@ -417,7 +393,7 @@ const InputSection: React.FC<InputSectionProps> = ({
                         
                         size="lg"
                         onClick={handleGenerateContent}
-                        disabled={!hasApiKey || isProcessing || !hasContent() || getLoadingState()}
+                        disabled={isProcessing || !hasContent() || getLoadingState()}
                         className="px-6 py-2 w-full rounded text-white 
                         bg-emerald-600"
                       >
@@ -451,7 +427,7 @@ const InputSection: React.FC<InputSectionProps> = ({
                        
                         size="lg"
                         onClick={handleGenerateContent}
-                        disabled={!hasApiKey || isProcessing || !hasContent() || getLoadingState()}
+                        disabled={isProcessing || !hasContent() || getLoadingState()}
                         className="w-full bg-emerald-600 text-white"
                       >
                         {getLoadingState() ? (
@@ -484,7 +460,7 @@ const InputSection: React.FC<InputSectionProps> = ({
                        
                         size="lg"
                         onClick={handleGenerateContent}
-                        disabled={!hasApiKey || isProcessing || !hasContent() || getLoadingState()}
+                        disabled={isProcessing || !hasContent() || getLoadingState()}
                         className="w-full bg-emerald-600 text-white"
                       >
                         {getLoadingState() ? (
@@ -517,7 +493,7 @@ const InputSection: React.FC<InputSectionProps> = ({
                         
                         size="lg"
                         onClick={handleGenerateContent}
-                        disabled={!hasApiKey || isProcessing || !hasContent() || getLoadingState()}
+                        disabled={isProcessing || !hasContent() || getLoadingState()}
                         className="w-full bg-emerald-600 text-white"
                       >
                         {getLoadingState() ? (

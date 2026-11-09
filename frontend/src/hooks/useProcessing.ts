@@ -3,10 +3,9 @@
 
 import { useState, useCallback } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { useApiKey } from './useApiKey';
 import { useFileUpload } from './useFileUpload';
 import apiClient from '@/lib/api';
-import { PROCESSING_STATES, ERROR_MESSAGES } from '@/lib/constants';
+import { PROCESSING_STATES } from '@/lib/constants';
 import type { 
   ProcessingStatus, 
   ProcessingResults, 
@@ -24,7 +23,6 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
   });
 
   const [results, setResults] = useState<ProcessingResults | null>(null);
-  const { validateApiKey } = useApiKey();
   const { updateFileStatus } = useFileUpload();
 
   // Update processing status
@@ -58,8 +56,6 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
   // Multimedia processing mutation
   const processMultimediaMutation = useMutation({
     mutationFn: async (text?: string) => {
-      validateApiKey();
-      
       const audioFiles = uploadedFiles.filter(f => 
         ['.mp3', '.wav', '.m4a', '.flac', '.aac', '.ogg'].includes(f.extension)
       );
@@ -110,7 +106,6 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
   // Individual processing mutations
   const summarizeMultimediaMutation = useMutation({
     mutationFn: async (text?: string) => {
-      validateApiKey();
       updateStatus(PROCESSING_STATES.PROCESSING, 0, 'Generating summary...');
       
       const audioFile = uploadedFiles.find(f => 
@@ -149,7 +144,6 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
 
   const generateMindmapMutation = useMutation({
     mutationFn: async (input: MindmapInput | string | undefined) => {
-      validateApiKey();
       updateStatus(PROCESSING_STATES.PROCESSING, 0, 'Generating mindmap...');
       
       // Always use multimedia endpoint
@@ -191,7 +185,6 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
 
   const generateQuizMutation = useMutation({
     mutationFn: async (input: MCQQuizInput | { content?: string; numQuestions: number }) => {
-      validateApiKey();
       updateStatus(PROCESSING_STATES.PROCESSING, 0, 'Generating quiz questions...');
       
       // Always use multimedia endpoint
@@ -235,7 +228,6 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
   const generateFlashcardsMutation = useMutation({
     mutationFn: async (input: FlashcardInput | string) => {
       console.log('generateFlashcardsMutation called with input:', input);
-      validateApiKey();
       updateStatus(PROCESSING_STATES.PROCESSING, 0, 'Generating flashcards...');
       
       // Always use multimedia endpoint
