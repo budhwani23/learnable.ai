@@ -22,7 +22,7 @@ services:
     environment:
       LLM: google
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:?set GOOGLE_API_KEY in backend/.env}
-      GOOGLE_MODEL: ${PRESENTON_GOOGLE_MODEL:-models/gemini-2.5-flash}
+      GOOGLE_MODEL: ${PRESENTON_GOOGLE_MODEL:-models/gemini-3.5-flash-lite}
       IMAGE_PROVIDER: ${PRESENTON_IMAGE_PROVIDER:-gemini_flash}
       PRESENTON_PUBLIC_URL: http://localhost:5001
       # Keep student content private: don't publish decks to Presenton's community gallery.
