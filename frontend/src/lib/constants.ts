@@ -70,8 +70,8 @@ export const PROCESSING_STATES = {
 
 // Error messages
 export const ERROR_MESSAGES = {
-  FILE_TOO_LARGE: 'File size exceeds the maximum limit of 50MB',
-  UNSUPPORTED_FILE_TYPE: 'This file type is not supported',
+  FILE_TOO_LARGE: 'This file is larger than the 50 MB limit.',
+  UNSUPPORTED_FILE_TYPE: 'This file type is not supported. Use a PDF or Word document, or an audio or video file.',
   API_KEY_MISSING: 'API key is required. Please configure it in Settings.',
   NETWORK_ERROR: 'Network error. Please check your connection.',
   PROCESSING_ERROR: 'Error processing your file. Please try again.',

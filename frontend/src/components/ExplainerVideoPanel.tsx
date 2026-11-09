@@ -55,8 +55,10 @@ const ExplainerVideoPanel: React.FC<ExplainerVideoPanelProps> = ({
           <video src={videoUrl} controls className="w-full rounded-lg bg-black aspect-video" />
         ) : (
           <div className="flex items-center justify-center aspect-video rounded-lg bg-gray-100">
-            {error ? (
-              <p className="text-sm text-red-600 px-4 text-center">{error}</p>
+            {error || job.has_video === false ? (
+              <p className="text-sm text-red-600 px-4 text-center">
+                {error || "The video finished without a playable file. Please try creating it again."}
+              </p>
             ) : (
               <Loader2 className="h-6 w-6 animate-spin text-emerald-600" />
             )}

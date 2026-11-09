@@ -4,6 +4,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { SUPPORTED_FILE_TYPES, API_CONFIG, ERROR_MESSAGES } from '@/lib/constants';
 import type { UploadedFile, FileValidationResult } from '@/lib/types';
+import { toast } from '@/hooks/use-toast';
 
 export const useFileUpload = () => {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
@@ -60,8 +61,12 @@ export const useFileUpload = () => {
     const uploadedFile = createUploadedFile(firstFile);
     setUploadedFiles([uploadedFile]); // ✅ Replace instead of appending
   } else {
-    console.error(`File validation failed for ${firstFile.name}:`, validation.error);
-    // Optionally show a toast here
+    // Tell the user why the file was ignored instead of failing silently.
+    toast({
+      title: `Can't use "${firstFile.name}"`,
+      description: validation.error || 'This file could not be added.',
+      variant: 'destructive',
+    });
   }
 }, [validateFile, createUploadedFile]);
 

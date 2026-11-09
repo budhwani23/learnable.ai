@@ -24,6 +24,7 @@ export default function Login() {
   // Keep ?redirect= when switching between the student and teacher pages.
   const switchRole = (r: Role) => {
     setError('');
+    setShowReset(false);
     navigate({ pathname: `/login/${r}`, search }, { replace: true });
   };
 
@@ -32,14 +33,19 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false); // Toggle visibility
+  const [showReset, setShowReset] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (loading) return;
+    if (!username.trim() || !password) {
+      setError('Enter your username and password.');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
-      await login(username, password, role);
+      await login(username.trim(), password, role);
       navigate(redirect, { replace: true });
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : 'Invalid credentials');
@@ -106,10 +112,22 @@ export default function Login() {
                 </button>
               </div>
 
-              <div className="flex items-center justify-end">
-                <button type="button" className="text-sm text-gray-600 hover:text-green-700">
+              <div className="flex flex-col items-end gap-1">
+                <button
+                  type="button"
+                  aria-expanded={showReset}
+                  onClick={() => setShowReset(v => !v)}
+                  className="text-sm text-gray-600 hover:text-green-700"
+                >
                   Forgot password?
                 </button>
+                {showReset && (
+                  <p className="text-xs text-gray-600 text-right">
+                    {role === 'student'
+                      ? 'Ask your teacher or school admin to reset it. If you signed in with Google before, use the link your teacher shared.'
+                      : 'Contact the learnable.ai administrator to reset your password.'}
+                  </p>
+                )}
               </div>
 
               <Button type="submit" className="w-full h-11 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white shadow-md" disabled={loading}>

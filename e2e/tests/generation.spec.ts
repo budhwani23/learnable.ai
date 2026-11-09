@@ -89,7 +89,8 @@ test.describe("Generation with real Gemini", () => {
     await page.getByRole("button", { name: "Generate Summary" }).click();
     await expect(page.getByText("Generating summary...")).toBeHidden({ timeout: GEN_TIMEOUT });
     const hasResult = await page.locator(".prose").count();
-    expect.soft(hasResult, "either a summary or a visible message").toBeGreaterThan(0);
+    const hasMessage = await page.getByText("Couldn't generate that").count();
+    expect.soft(hasResult + hasMessage, "either a summary or a visible message").toBeGreaterThan(0);
     expect(w.consoleErrors.filter((e) => e.startsWith("pageerror"))).toEqual([]);
   });
 
@@ -111,12 +112,12 @@ test.describe("Generation with real Gemini", () => {
     await page.getByRole("tab", { name: "URL", exact: true }).click();
     await page.locator("#url-input").fill("this is not a url");
     await page.getByRole("tab", { name: "Summary", exact: true }).click();
-    const btn = page.getByRole("button", { name: "Generate Summary" });
-    if (await btn.isDisabled()) return; // rejected up front: fine
-    await btn.click();
-    await expect(page.getByText("Generating summary...")).toBeHidden({ timeout: GEN_TIMEOUT });
-    const summary = await page.locator(".prose").count();
-    expect(summary, "an invalid URL should be rejected, not summarised as text").toBe(0);
+    await expect(page.getByRole("button", { name: "Generate Summary" }), "an invalid URL can't be submitted").toBeDisabled();
+    await page.getByRole("tab", { name: "URL", exact: true }).click();
+    await expect(page.getByText("That isn't a YouTube video link.", { exact: false })).toBeVisible();
+    await page.locator("#url-input").fill("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    await page.getByRole("tab", { name: "Summary", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Generate Summary" })).toBeEnabled();
   });
 });
 
@@ -126,7 +127,7 @@ test.describe("Generation input validation and failures (mocked API)", () => {
     await page.getByRole("tab", { name: "Files", exact: true }).click();
     await page.locator("input[type=file]").setInputFiles({ name: "virus.exe", mimeType: "application/octet-stream", buffer: Buffer.from("MZ") });
     await expect(page.getByText("Uploaded Files (1)")).toHaveCount(0);
-    await expect(page.getByText(/not supported/i), "the user should be told why the file was ignored").toBeVisible({ timeout: 3000 });
+    await expect(page.getByText(/not supported/i).first(), "the user should be told why the file was ignored").toBeVisible({ timeout: 3000 });
   });
 
   test("G-10 file above 50 MB is rejected with a message", async ({ page }) => {
@@ -137,7 +138,7 @@ test.describe("Generation input validation and failures (mocked API)", () => {
     writeFileSync(big, Buffer.alloc(51 * 1024 * 1024));
     await page.locator("input[type=file]").setInputFiles(big);
     await expect(page.getByText("Uploaded Files (1)")).toHaveCount(0);
-    await expect(page.getByText(/exceeds|too large|50 ?MB/i).filter({ hasNotText: "Supports PDF" }), "size error message").toBeVisible({ timeout: 3000 });
+    await expect(page.getByText(/larger than the 50 MB limit/i).first(), "size error message").toBeVisible({ timeout: 3000 });
   });
 
   test("G-10b a valid PDF is accepted and listed", async ({ page }) => {

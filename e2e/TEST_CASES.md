@@ -31,6 +31,7 @@ Type: **H** happy path · **B** boundary / edge · **F** failure / negative · *
 | A-19 | S | Username containing `<img src=x onerror=…>` | Shown as text, never executed |
 | A-20 | B | Unicode username (`José_学生`) | Accepted or rejected cleanly; shown correctly if accepted |
 | A-21 | B | Username / password with surrounding spaces | Handled consistently between sign-up and sign-in |
+| A-22 | H | "Forgot password?" on student and teacher pages | Explains who can reset the password |
 
 ## Routing (`tests/routing.spec.ts`)
 
@@ -42,7 +43,7 @@ Type: **H** happy path · **B** boundary / edge · **F** failure / negative · *
 | R-04 | B | Phone viewport (375×812) sign-in page | No horizontal scrolling; controls usable |
 | R-05 | F | Expired access token with a valid refresh token | Silently refreshed; user stays signed in |
 | R-06 | S | Sign out on a shared computer | Remembered video/slide job ids are cleared |
-| R-07 | B | Home page buttons ("Watch Demo", "Start Your Journey", "Learn More") | Each does something |
+| R-07 | B | Home page buttons ("See How It Works", "Start Your Journey", "Learn More") | Each navigates or scrolls |
 
 ## Generation (`tests/generation.spec.ts`, real Gemini)
 
@@ -55,7 +56,7 @@ Type: **H** happy path · **B** boundary / edge · **F** failure / negative · *
 | G-05 | B | Empty and whitespace-only text | Generate buttons disabled (or a clear message) |
 | G-06 | B | One-word input | Graceful result or clear message, no crash |
 | G-07 | B | Very long text (~200 KB) | Generates or shows a clear size error; no hang |
-| G-08 | F | URL tab with an invalid URL | Clear error |
+| G-08 | F | URL tab with a non-YouTube URL | Generate disabled with a hint; a YouTube link enables it |
 | G-09 | F | Upload an unsupported file type | Rejected before upload with a message |
 | G-10 | F | Upload a file above the 50 MB limit | Rejected with a message |
 | G-10b | H | Upload a small valid PDF | Listed under "Uploaded Files (1)" |

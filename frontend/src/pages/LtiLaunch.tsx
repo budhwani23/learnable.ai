@@ -24,7 +24,9 @@ export function LtiBridge() {
     exchangeLtiCode(code)
       .then(async launch => {
         await refreshUser();
-        navigate(launch.mode === "pick" ? "/lti/pick" : `/r/${launch.resource_id}`, { replace: true });
+        if (launch.mode === "pick") navigate("/lti/pick", { replace: true });
+        else if (launch.resource_id) navigate(`/r/${launch.resource_id}`, { replace: true });
+        else setError("This activity isn't linked to a learnable.ai resource yet. Ask your teacher to set it up again.");
       })
       .catch(e => setError(e.message));
   }, [navigate, refreshUser]);
@@ -46,10 +48,12 @@ export function LtiPicker() {
   const [submitting, setSubmitting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const isPick = !!launch && launch.mode === "pick";
   const load = useCallback(() => {
+    if (!isPick) return; // nothing to list outside an LMS "add activity" launch
     setResources(null);
     library.list().then(setResources).catch(e => setError(e.message));
-  }, []);
+  }, [isPick]);
   useEffect(load, [load]);
 
   if (!launch || launch.mode !== "pick") {

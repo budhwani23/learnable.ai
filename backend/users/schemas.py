@@ -1,8 +1,12 @@
 from typing import Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 Role = Literal["teacher", "student"]
+
+
+def _strip(value):
+    return value.strip() if isinstance(value, str) else value
 
 
 class RegisterIn(BaseModel):
@@ -11,6 +15,12 @@ class RegisterIn(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     role: Role = "student"
+
+    # Trim before the length checks so "  ab  " is still too short.
+    @field_validator("username", "email", mode="before")
+    @classmethod
+    def trim_fields(cls, value):
+        return _strip(value)
 
 
 class LoginIn(BaseModel):
@@ -21,6 +31,11 @@ class LoginIn(BaseModel):
     username: str
     password: str
     role: Optional[Role] = None
+
+    @field_validator("username", mode="before")
+    @classmethod
+    def trim_username(cls, value):
+        return _strip(value)
 
 
 class GoogleLoginIn(BaseModel):

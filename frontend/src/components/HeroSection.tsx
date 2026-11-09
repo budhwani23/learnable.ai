@@ -46,6 +46,8 @@ const HeroSection = () => {
   const { isAuthenticated } = useAuth();
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
+  const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+
   function onStart() {
     const target = '/input';
     if (isAuthenticated) navigate(target);
@@ -86,9 +88,13 @@ const HeroSection = () => {
                 </span>
               </Button>
 
-              <Button size="lg" className="text-lg font-semibold hover:bg-emerald-600 hover:text-white text-emerald-600 border-emerald-600 rounded-3xl border-2 px-8">
+              <Button
+                size="lg"
+                className="text-lg font-semibold hover:bg-emerald-600 hover:text-white text-emerald-600 border-emerald-600 rounded-3xl border-2 px-8"
+                onClick={() => scrollTo('how-it-works')}
+              >
                 <Video className="h-5 w-5" />
-                Watch Demo
+                See How It Works
               </Button>
             </div>
           </div>
@@ -301,13 +307,14 @@ const HeroSection = () => {
               Join thousands of students who are already learning smarter with Hopnote. Your future self will thank you! 🎓
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Button size="lg" className="bg-emerald-600 hover:bg-emerald-500 text-white text-lg px-8 py-3 rounded-full">
+              <Button size="lg" className="bg-emerald-600 hover:bg-emerald-500 text-white text-lg px-8 py-3 rounded-full" onClick={onStart}>
                 Start Your Journey <Heart className="w-5 h-5 ml-2" />
               </Button>
               <Button
                 size="lg"
                 variant="outline"
                 className="border-2 border-emerald-600 text-emerald-600 hover:bg-emerald-600 hover:text-white text-lg px-8 py-3 rounded-full bg-transparent"
+                onClick={() => scrollTo('features')}
               >
                 Learn More
               </Button>

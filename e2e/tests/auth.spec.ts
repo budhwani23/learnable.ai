@@ -224,4 +224,13 @@ test.describe("Authentication and roles", () => {
       expect(exact.status).toBe(200);
     }
   });
+
+  test("A-22 Forgot password explains how to get a reset", async ({ page }) => {
+    await page.goto("/login/student");
+    await page.getByRole("button", { name: "Forgot password?" }).click();
+    await expect(page.getByText(/Ask your teacher or school admin to reset it/)).toBeVisible();
+    await page.getByRole("radio", { name: "I'm a teacher" }).click();
+    await page.getByRole("button", { name: "Forgot password?" }).click();
+    await expect(page.getByText(/Contact the learnable.ai administrator/)).toBeVisible();
+  });
 });

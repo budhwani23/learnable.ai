@@ -2,6 +2,8 @@ from typing import List, Optional, Tuple
 
 from django.contrib.auth.models import User
 
+from core.quiz import correct_index
+
 from .models import LearningResource, ResourceAccess
 
 
@@ -21,15 +23,14 @@ def grade_quiz(resource: LearningResource, answers: List[Optional[str]]) -> Tupl
     """
     Grade on the server from the stored quiz so a student can't post a fake score.
     `answers` are the chosen option texts (what the quiz UI records), one per question.
-    `correct_answer` is a letter A-D indexing into `options`.
+    `correct_answer` is a letter A-D, or occasionally the option text itself.
     """
     questions = (resource.payload or {}).get("quiz") or []
     score = 0
     for i, q in enumerate(questions):
         given = answers[i] if i < len(answers) else None
-        letter = str(q.get("correct_answer", "")).strip().upper()[:1]
         options = q.get("options") or []
-        idx = ord(letter) - 65 if letter else -1
+        idx = correct_index(q)
         if given is not None and 0 <= idx < len(options) and given == options[idx]:
             score += 1
     return score, len(questions)

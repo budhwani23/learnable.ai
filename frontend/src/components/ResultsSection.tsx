@@ -12,6 +12,7 @@ import { convertMindmapToMermaid } from "@/utils/mindmapToMermaid";
 import MindmapViewer from "@/components/MindmapViewer";
 import ShareToClassButton from "@/components/ShareToClassButton";
 import ExportMenu from "@/components/ExportMenu";
+import { correctIndex } from "@/lib/exporters";
 import { useAuth } from "@/hooks/useAuth";
 import { defaultTitle, payloadFor, type ResourceType } from "@/lib/library";
 import type { MCQQuestion } from "@/lib/types";
@@ -131,11 +132,8 @@ const ResultsSection: React.FC<ResultsSectionProps> = ({ results, activeTab, onR
   // Reference to mindmap container for scrolling
   const mindmapContainerRef = useRef<HTMLDivElement>(null);
 
-  // Helper function to get correct answer text from letter
-  const getCorrectAnswerText = (question: MCQQuestion) => {
-    const letterIndex = question.correct_answer.charCodeAt(0) - 65; // Convert A=0, B=1, C=2, D=3
-    return question.options[letterIndex];
-  };
+  // Correct option text. correct_answer is usually a letter, but can be the option text.
+  const getCorrectAnswerText = (question: MCQQuestion) => question.options[correctIndex(question)];
 
   // Helper function to check if answer is correct
   const isAnswerCorrect = (question: MCQQuestion, userAnswer: string | null) => {

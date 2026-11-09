@@ -131,7 +131,7 @@ const FileUpload: React.FC<FileUploadComponentProps> = ({
         </h3>
         
         <p className="text-muted-foreground mb-4">
-          Supports PDF, DOCX, TXT, MP4, MP3, WAV, and M4A files (max {formatFileSize(maxSize)})
+          Supports PDF and Word documents, audio (MP3, WAV, M4A…) and video (MP4, MOV, WEBM…), up to {formatFileSize(maxSize)}
         </p>
         
         <Button 
@@ -140,7 +140,7 @@ const FileUpload: React.FC<FileUploadComponentProps> = ({
           disabled={disabled}
         >
           <FileText className="h-4 w-4 mr-2" />
-          Choose Files
+          Choose File
         </Button>
         
         {acceptedTypes.length > 0 && (

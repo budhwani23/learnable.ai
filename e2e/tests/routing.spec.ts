@@ -55,17 +55,21 @@ test.describe("Routing and session", () => {
     expect(left, "the next person on this browser must not resume these jobs").toEqual([null, null]);
   });
 
-  test("R-07 dead links and buttons on the home page", async ({ page }) => {
+  test("R-07 every home page button does something", async ({ page }) => {
     await page.goto("/");
     const dead: string[] = [];
-    for (const name of ["Watch Demo", "Start Your Journey", "Learn More"]) {
+    for (const name of ["See How It Works", "Start Your Journey", "Learn More"]) {
+      await page.goto("/");
       const btn = page.getByRole("button", { name }).first();
-      if (!(await btn.count())) continue;
-      const before = page.url();
+      await expect(btn, `button "${name}"`).toBeVisible();
+      const before = { url: page.url(), y: await page.evaluate(() => window.scrollY) };
+      await btn.scrollIntoViewIfNeeded();
+      const startY = await page.evaluate(() => window.scrollY);
       await btn.click();
-      await page.waitForTimeout(500);
-      if (page.url() === before && (await page.locator("[role=dialog]").count()) === 0) dead.push(name);
+      await page.waitForTimeout(1200);
+      const after = { url: page.url(), y: await page.evaluate(() => window.scrollY) };
+      if (after.url === before.url && Math.abs(after.y - startY) < 50) dead.push(name);
     }
-    expect.soft(dead, "buttons that do nothing when clicked").toEqual([]);
+    expect(dead, "buttons that do nothing when clicked").toEqual([]);
   });
 });

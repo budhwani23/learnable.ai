@@ -5,6 +5,7 @@ import json
 from typing import Dict, Any, List, Optional
 from ninja.files import UploadedFile
 from core.gemini import GeminiService
+from core.quiz import normalize_question
 from constants import (
     MINDMAP_GENERATION_PROMPT, FLASHCARD_GENERATION_PROMPT, get_mcq_quiz_prompt,
     TOPIC_EXTRACTION_PROMPT,
@@ -275,7 +276,7 @@ class LearningService:
         result = structured_llm.invoke(task_prompt)
 
         if result is not None and getattr(result, "questions", None):
-            return [
+            return self._normalize_mcq([
                 MCQQuestion(
                     question=q.question,
                     options=[q.option_a, q.option_b, q.option_c, q.option_d],
@@ -283,15 +284,17 @@ class LearningService:
                     explanation=q.explanation,
                 )
                 for q in result.questions
-            ]
+            ])
 
         # Fallback: ask for raw JSON and parse it manually.
         json_prompt = (
             f"{task_prompt}\n\n"
             "CRITICAL: Return ONLY a valid JSON array, with no other text or markdown. "
             f"Create exactly {num_questions} questions. Each array element must use this exact shape:\n"
-            '{"question": "...", "options": ["Option A text", "Option B text", '
-            '"Option C text", "Option D text"], "correct_answer": "A", "explanation": "..."}'
+            '{"question": "Where does photosynthesis take place?", "options": ["Mitochondria", '
+            '"Chloroplasts", "Nucleus", "Ribosomes"], "correct_answer": "B", "explanation": "..."}\n'
+            "Option strings are the answer text only: no 'A)', 'Option A:' or similar labels. "
+            "correct_answer is the letter of the right option."
         )
         raw = self.gemini_service.run_raw(json_prompt)
         cleaned = self._clean_json_response(raw if isinstance(raw, str) else str(raw))
@@ -310,7 +313,12 @@ class LearningService:
         ]
         if not questions:
             raise ValueError("Model returned no questions.")
-        return questions
+        return self._normalize_mcq(questions)
+
+    @staticmethod
+    def _normalize_mcq(questions: List[MCQQuestion]) -> List[MCQQuestion]:
+        """Strip "Option A:"-style labels from options and store the answer as a letter."""
+        return [MCQQuestion(**normalize_question(q.model_dump())) for q in questions]
     
     def generate_mindmap(self, topic: str) -> Dict[str, Any]:
         """

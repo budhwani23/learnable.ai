@@ -52,6 +52,10 @@ type InputSectionProps = ReturnType<typeof useFileUpload> &
   Omit<ReturnType<typeof useProcessing>, 'summarizeTextMutation'> &
   { results: ProcessingResults | null };
 
+// The URL tab works from YouTube transcripts; other links would just be summarised as text.
+const isValidUrl = (value: string) =>
+  /^https?:\/\/(www\.|m\.)?(youtube\.com\/(watch\?|shorts\/|live\/)|youtu\.be\/)\S+/i.test(value.trim());
+
 const InputSection: React.FC<InputSectionProps> = ({
   uploadedFiles,
   isDragOver,
@@ -192,7 +196,7 @@ const InputSection: React.FC<InputSectionProps> = ({
       case "file":
         return uploadedFiles.length > 0;
       case "url":
-        return urlInput.trim().length > 0;
+        return isValidUrl(urlInput);
       default:
         return false;
     }
@@ -333,14 +337,22 @@ const InputSection: React.FC<InputSectionProps> = ({
                   <Input
                     id="url-input"
                     type="url"
-                    placeholder="https://youtube.com/watch?v=... or any educational link"
+                    placeholder="https://www.youtube.com/watch?v=..."
                     value={urlInput}
                     onChange={(e) => setUrlInput(e.target.value)}
+                    disabled={isProcessing}
+                    aria-invalid={!!urlInput.trim() && !isValidUrl(urlInput)}
                     className="text-base"
                   />
-                  <p className="text-sm text-muted-foreground">
-                    Supports YouTube videos, educational websites, and online documents
-                  </p>
+                  {urlInput.trim() && !isValidUrl(urlInput) ? (
+                    <p className="text-sm text-red-600">
+                      That isn't a YouTube video link. Paste a link like https://www.youtube.com/watch?v=…
+                    </p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Paste a YouTube video link. For other pages, copy the text into the Text tab.
+                    </p>
+                  )}
                 </TabsContent>
               </Tabs>
             </div>

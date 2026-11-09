@@ -74,6 +74,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'api.middleware.LargeFileUploadMiddleware',  # Custom middleware for file uploads
+    'api.middleware.ApiErrorStatusMiddleware',  # real HTTP status for failed generations
 ]
 
 ROOT_URLCONF = 'api.urls'

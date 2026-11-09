@@ -47,10 +47,10 @@ class MindmapOutput(BaseModel):
 # MCQ Quiz Schemas - Structured Output
 class MCQQuestionStructured(BaseModel):
     question: str = Field(..., description="Question text")
-    option_a: str = Field(..., description="Option A text")
-    option_b: str = Field(..., description="Option B text")
-    option_c: str = Field(..., description="Option C text")
-    option_d: str = Field(..., description="Option D text")
+    option_a: str = Field(..., description="Text of the first answer choice, without any letter label")
+    option_b: str = Field(..., description="Text of the second answer choice, without any letter label")
+    option_c: str = Field(..., description="Text of the third answer choice, without any letter label")
+    option_d: str = Field(..., description="Text of the fourth answer choice, without any letter label")
     correct_answer: str = Field(..., description="Correct answer (A, B, C, or D)")
     explanation: str = Field(..., description="Explanation for the correct answer")
 

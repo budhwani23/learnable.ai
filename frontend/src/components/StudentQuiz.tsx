@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { CheckCircle, Loader2, XCircle } from "lucide-react";
 import { library, type QuizAttemptResult } from "@/lib/library";
+import { correctIndex } from "@/lib/exporters";
 
 interface StudentQuizProps {
   resourceId: string;
@@ -34,6 +35,10 @@ const StudentQuiz: React.FC<StudentQuizProps> = ({ resourceId, questions, ltiLau
     }
   };
 
+  if (!questions.length || !q) {
+    return <p className="text-muted-foreground">This quiz doesn't have any questions yet.</p>;
+  }
+
   if (result) {
     const pct = result.max_score ? Math.round((100 * result.score) / result.max_score) : 0;
     return (
@@ -51,7 +56,9 @@ const StudentQuiz: React.FC<StudentQuizProps> = ({ resourceId, questions, ltiLau
         <ol className="space-y-4">
           {questions.map((question, i) => {
             const key = result.answer_key[i];
-            const idx = key ? key.correct_answer.toUpperCase().charCodeAt(0) - 65 : -1;
+            const idx = key
+              ? correctIndex({ question: question.question, options: question.options, correct_answer: key.correct_answer || "", explanation: "" })
+              : -1;
             const correctText = question.options[idx];
             const ok = answers[i] === correctText;
             return (

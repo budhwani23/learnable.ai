@@ -24,6 +24,45 @@ import type {
   ApiError
 } from './types';
 
+const FIELD_MESSAGES: Record<string, string> = {
+  username: 'Username must be 3 to 150 characters.',
+  email: 'Enter a valid email address, like name@example.com.',
+  password: 'Password must be at least 8 characters.',
+  role: 'Choose student or teacher.',
+};
+
+/** Turn a 422 validation error list ([{loc: [..., "username"], msg}]) into plain sentences. */
+function validationMessage(detail: unknown): string {
+  if (!Array.isArray(detail)) return 'Please check the details you entered.';
+  const fields = new Set<string>();
+  for (const item of detail) {
+    const loc = Array.isArray(item?.loc) ? item.loc : [];
+    const field = String(loc[loc.length - 1] ?? '');
+    if (field) fields.add(field);
+  }
+  const lines = [...fields].map((f) => FIELD_MESSAGES[f]).filter(Boolean);
+  return lines.length ? lines.join(' ') : 'Please check the details you entered.';
+}
+
+/** An Error carrying the HTTP status, with the server's own reason as the message. */
+export class HttpError extends Error {
+  constructor(message: string, public status: number) { super(message); }
+}
+
+async function httpError(res: Response): Promise<HttpError> {
+  let reason = '';
+  try {
+    const body = await res.clone().json();
+    if (typeof body?.error === 'string') reason = body.error;
+    else if (typeof body?.detail === 'string') reason = body.detail;
+  } catch { /* not JSON */ }
+  const fallback = res.status === 401 ? 'Your session has expired. Please sign in again.'
+    : res.status === 403 ? "You don't have permission to do that."
+    : res.status === 404 ? "That couldn't be found. It may have been deleted or not shared with you."
+    : `The server couldn't complete this request (error ${res.status}). Please try again.`;
+  return new HttpError(reason || fallback, res.status);
+}
+
 class ApiClient {
   private baseUrl: string;
   private timeout: number;
@@ -95,7 +134,7 @@ class ApiClient {
     const doFetch = async (): Promise<T> => {
       const response = await fetch(url, finalOptions);
       if (!response.ok) {
-        throw new Error(String(response.status));
+        throw await httpError(response);
       }
       const data = await response.json();
       if ((data as any).error) {
@@ -108,7 +147,7 @@ class ApiClient {
       return await doFetch();
     } catch (error: any) {
       // If unauthorized on an auth-required call, try refresh once
-      if (auth && error instanceof Error && error.message === '401') {
+      if (auth && (error as HttpError)?.status === 401) {
         const refreshed = await this.refreshTokensOnce();
         if (refreshed) {
           const retryOptions: RequestInit = {
@@ -119,8 +158,10 @@ class ApiClient {
             },
           };
           const retryRes = await fetch(url, retryOptions);
-          if (!retryRes.ok) throw new Error(String(retryRes.status));
-          return await retryRes.json();
+          if (!retryRes.ok) throw await httpError(retryRes);
+          const retryData = await retryRes.json();
+          if (retryData?.error) throw new Error(retryData.error);
+          return retryData as T;
         }
         this.clearTokens();
       }
@@ -239,7 +280,7 @@ class ApiClient {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       const detail = typeof data.detail === 'string' ? data.detail : null;
-      throw new Error(detail || (res.status === 422 ? 'Please check the details you entered.' : fallback));
+      throw new Error(detail || (res.status === 422 ? validationMessage(data.detail) : fallback));
     }
     this.setTokens(data.access, data.refresh);
     return data as { access: string; refresh: string };

@@ -36,10 +36,22 @@ export default function Register() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (loading) return;
+    // Check the form before calling the server, and say exactly what to fix.
+    const name = username.trim();
+    const mail = email.trim();
+    const problems = [
+      (name.length < 3 || name.length > 150) && 'Username must be 3 to 150 characters.',
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail) && 'Enter a valid email address, like name@example.com.',
+      password.length < 8 && 'Password must be at least 8 characters.',
+    ].filter(Boolean) as string[];
+    if (problems.length) {
+      setError(problems.join(' '));
+      return;
+    }
     setLoading(true);
     setError('');
     try {
-      await register(username, email, password, role);
+      await register(name, mail, password, role);
       navigate(redirect, { replace: true });
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : 'Registration failed');
