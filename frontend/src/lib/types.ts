@@ -62,6 +62,9 @@ export interface MindmapOutput {
   content_type?: string;
 }
 
+/** Account type: teachers create and share to classes; students study and take shared quizzes. */
+export type Role = 'teacher' | 'student';
+
 // MCQ Quiz Types
 export interface MCQQuestion {
   question: string;

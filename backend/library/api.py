@@ -9,6 +9,7 @@ from ninja.router import Router
 
 from explainer import jobs as explainer_jobs
 from users.security import JWTAuth
+from users.services import is_teacher
 
 from .models import LearningResource, QuizAttempt, ResourceAccess
 from .services import can_view, grade_quiz, grant_access
@@ -50,10 +51,15 @@ def _get(resource_id: UUID) -> LearningResource:
     return r
 
 
-@router.post("/resources")
+TEACHERS_ONLY = {"error": "Only teacher accounts can share resources to a class."}
+
+
+@router.post("/resources", response={200: dict, 403: dict})
 def create_resource(request, data: ResourceIn):
-    """Save a generated result so it can be shared to a class."""
+    """Save a generated result so it can be shared to a class (teachers only)."""
     user = request.auth
+    if not is_teacher(user):
+        return 403, TEACHERS_ONLY
     if data.type not in VALID_TYPES:
         return {"error": f"Unknown resource type '{data.type}'."}
     title = data.title.strip()[:200] or "Untitled"
@@ -103,11 +109,13 @@ def get_resource(request, resource_id: UUID):
     return {"success": True, "resource": data}
 
 
-@router.patch("/resources/{resource_id}/sharing")
+@router.patch("/resources/{resource_id}/sharing", response={200: dict, 403: dict})
 def set_sharing(request, resource_id: UUID, data: SharingIn):
     r = _get(resource_id)
     if r.owner_id != request.auth.id:
         raise Http404("Resource not found")
+    if not is_teacher(request.auth):
+        return 403, TEACHERS_ONLY
     r.share_enabled = data.share_enabled
     r.save(update_fields=["share_enabled"])
     return {"success": True, "resource": _summary(r, request.auth)}

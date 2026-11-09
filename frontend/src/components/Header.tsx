@@ -2,9 +2,12 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { LogOut } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
 
 const Header = () => {
   const { pathname } = useLocation();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
   const isHome = pathname === "/";
   const [scrolled, setScrolled] = useState(false);
@@ -46,10 +49,31 @@ const Header = () => {
 
           {/* Actions */}
           <div className="flex items-center gap-3">
-            {isHome && (
+            {user ? (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="hidden sm:inline text-gray-700">{user.username}</span>
+                <span
+                  className={[
+                    "rounded-full px-2.5 py-0.5 text-xs font-medium",
+                    user.role === "teacher" ? "bg-indigo-100 text-indigo-700" : "bg-emerald-100 text-emerald-700",
+                  ].join(" ")}
+                >
+                  {user.role === "teacher" ? "Teacher" : "Student"}
+                </span>
+                <Button size="sm" variant="ghost" onClick={() => { logout(); navigate("/"); }}>
+                  <LogOut className="h-4 w-4 sm:mr-1" />
+                  <span className="hidden sm:inline">Sign out</span>
+                </Button>
+              </div>
+            ) : isHome && (
+              <Link to="/login/teacher" className="hidden sm:inline text-sm text-gray-700 hover:text-emerald-700">
+                For teachers
+              </Link>
+            )}
+            {isHome && !user && (
              <Button
              size="sm"
-             onClick={() => navigate("/login")}
+             onClick={() => navigate("/login/student")}
              className="group relative inline-flex items-center justify-center rounded-3xl px-5
                         bg-emerald-600 text-white font-normal hover:bg-emerald-600/95
                         transition-colors duration-200 focus:outline-none animate-slide-in-right"

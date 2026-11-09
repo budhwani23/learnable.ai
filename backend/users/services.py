@@ -25,6 +25,23 @@ def get_profile(user: User) -> UserProfile:
     return profile
 
 
+def get_role(user: User) -> str:
+    return get_profile(user).role
+
+
+def is_teacher(user: User) -> bool:
+    return get_profile(user).is_teacher
+
+
+def set_role(user: User, role: str) -> None:
+    if role not in dict(UserProfile.ROLES):
+        raise ValueError(f"Unknown role '{role}'")
+    profile = get_profile(user)
+    if profile.role != role:
+        profile.role = role
+        profile.save(update_fields=["role", "updated_at"])
+
+
 @transaction.atomic
 def add_credits(user: User, amount: int) -> int:
     """

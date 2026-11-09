@@ -6,10 +6,20 @@ from ninja.router import Router
 from .schemas import RegisterIn, LoginIn, GoogleLoginIn, TokenOut, UserOut, CreditChangeIn, ErrorOut
 from .auth import create_tokens, decode_token
 from .security import jwt_auth
-from .services import add_credits, deduct_credits, get_profile
+from .services import add_credits, deduct_credits, get_profile, get_role, set_role
 
 # Router that will be mounted under /api/users
 router = Router()
+
+_ROLE_LABEL = {"teacher": "a teacher", "student": "a student"}
+
+
+def _wrong_portal(user: User, wanted: str | None):
+    """403 body when an account signs in through the other role's sign-in page, else None."""
+    actual = get_role(user)
+    if wanted and wanted != actual:
+        return {"detail": f"This is {_ROLE_LABEL[actual]} account. Use the {actual} sign-in instead."}
+    return None
 
 
 @router.post("/auth/register", response={200: TokenOut, 409: ErrorOut})
@@ -29,26 +39,29 @@ def register(request, payload: RegisterIn):
     except IntegrityError:
         # Username already exists
         return 409, {"detail": "Username already exists"}
+    set_role(user, payload.role)
 
     access, refresh = create_tokens(user.id, user.username)
     return {"access": access, "refresh": refresh}
 
 
-@router.post("/auth/login", response={200: TokenOut, 401: ErrorOut})
+@router.post("/auth/login", response={200: TokenOut, 401: ErrorOut, 403: ErrorOut})
 def login(request, payload: LoginIn):
     """
     Authenticate with username and password.
-    Returns a fresh token pair on success.
+    Returns a fresh token pair on success. With `role`, the account must have that role.
     """
     user = authenticate(username=payload.username, password=payload.password)
     if not user:
         return 401, {"detail": "Invalid credentials"}
+    if (err := _wrong_portal(user, payload.role)):
+        return 403, err
 
     access, refresh = create_tokens(user.id, user.username)
     return {"access": access, "refresh": refresh}
 
 
-@router.post("/auth/google", response={200: TokenOut, 401: ErrorOut, 503: ErrorOut})
+@router.post("/auth/google", response={200: TokenOut, 401: ErrorOut, 403: ErrorOut, 503: ErrorOut})
 def google_login(request, payload: GoogleLoginIn):
     """
     Sign in with a Google ID token (used by students opening a link shared to
@@ -85,6 +98,9 @@ def google_login(request, payload: GoogleLoginIn):
                     last_name=(info.get("family_name") or "")[:150])
         user.set_unusable_password()
         user.save()
+        set_role(user, payload.role or "student")
+    elif (err := _wrong_portal(user, payload.role)):
+        return 403, err
 
     access, refresh = create_tokens(user.id, user.username)
     return {"access": access, "refresh": refresh}
@@ -123,6 +139,7 @@ def me(request):
         "username": user.username,
         "email": user.email,
         "credits": profile.credits,
+        "role": profile.role,
     }
 
 

@@ -16,6 +16,8 @@ from pylti1p3.exception import LtiException
 
 from library.models import LearningResource, ResourceAccess
 from library.services import grant_access
+from users.models import UserProfile
+from users.services import set_role
 
 from .models import LtiResourceLink
 from .services import (CLAIM_CUSTOM, CLAIM_RESOURCE_LINK, create_launch, frontend_url,
@@ -65,6 +67,10 @@ def launch(request):
     issuer = data["iss"]
     user = user_for_launch(issuer, data)
     is_instructor = ml.check_teacher_access()
+    if is_instructor:
+        # LMS instructors are teachers here too. Never downgrade: the same person can
+        # be a learner in another course.
+        set_role(user, UserProfile.ROLE_TEACHER)
 
     if ml.is_deep_link_launch():
         if not is_instructor:

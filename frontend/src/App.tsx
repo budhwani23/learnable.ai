@@ -36,7 +36,9 @@ const App = () => {
               }
             />
             <Route path="/login" element={<Login />} />
+            <Route path="/login/:role" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/register/:role" element={<Register />} />
             {/* Shared class resources + LMS (LTI 1.3) launches */}
             <Route path="/r/:id" element={<ResourceView />} />
             <Route path="/lti" element={<LtiBridge />} />

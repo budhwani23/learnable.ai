@@ -1,17 +1,19 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import api from '@/lib/api';
+import type { Role } from '@/lib/types';
 
 const ACCESS_KEY = 'auth_access';
 const REFRESH_KEY = 'auth_refresh';
 
-type Me = { id: number; username: string; email: string; credits: number };
+type Me = { id: number; username: string; email: string; credits: number; role: Role };
 
 type AuthContextValue = {
   user: Me | null;
   isAuthenticated: boolean;
+  isTeacher: boolean;
   loading: boolean;
-  login: (username: string, password: string) => Promise<void>;
-  register: (username: string, email: string, password: string) => Promise<void>;
+  login: (username: string, password: string, role?: Role) => Promise<void>;
+  register: (username: string, email: string, password: string, role: Role) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
 };
@@ -38,13 +40,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     else setLoading(false);
   }, [fetchMe]);
 
-  const login = useCallback(async (username: string, password: string) => {
-    await api.login(username, password);
+  const login = useCallback(async (username: string, password: string, role?: Role) => {
+    await api.login(username, password, role);
     await fetchMe();
   }, [fetchMe]);
 
-  const register = useCallback(async (username: string, email: string, password: string) => {
-    await api.register(username, email, password);
+  const register = useCallback(async (username: string, email: string, password: string, role: Role) => {
+    await api.register(username, email, password, role);
     await fetchMe();
   }, [fetchMe]);
 
@@ -57,6 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<AuthContextValue>(() => ({
     user,
     isAuthenticated: !!user,
+    isTeacher: user?.role === 'teacher',
     loading,
     login,
     register,

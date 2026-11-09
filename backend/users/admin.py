@@ -9,9 +9,12 @@ class UserProfileAdmin(admin.ModelAdmin):
     """
     list_display = (
         'user',
+        'role',
         'credits',
         'gemini_input_tokens',
         'gemini_output_tokens',
         'updated_at',
     )
+    list_filter = ('role',)
+    list_editable = ('role',)
     search_fields = ('user__username', 'user__email') 

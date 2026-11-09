@@ -22,6 +22,7 @@ from pylti1p3.registration import Registration
 
 from library.models import LearningResource, QuizAttempt, ResourceAccess
 from users.auth import create_tokens
+from users.services import get_role, set_role
 
 from .management.commands.lti_setup import ensure_key
 from .models import LtiLaunch, LtiResourceLink, LtiUserLink
@@ -163,6 +164,7 @@ class LtiFlowTests(TestCase):
     def test_learner_cannot_deep_link(self):
         r = self._launch(self._deep_link_claims(), sub="student-9", roles=(LEARNER,))
         self.assertEqual(r.status_code, 403)
+        self.assertEqual(get_role(User.objects.get(lti_links__sub="student-9")), "student")
 
     def _deep_link_claims(self):
         return {
@@ -179,7 +181,8 @@ class LtiFlowTests(TestCase):
                                                            roles=(INSTRUCTOR,))))
         self.assertEqual(data["launch"]["mode"], "pick")
         lms_teacher = User.objects.get(lti_links__sub="teacher-lms")
-        own = LearningResource.objects.create(owner=lms_teacher, type="quiz", title="Cells quiz", payload=QUIZ)
+        self.assertEqual(get_role(lms_teacher), "teacher")  # LMS instructors become teachers
+        own =LearningResource.objects.create(owner=lms_teacher, type="quiz", title="Cells quiz", payload=QUIZ)
         hdr = {"HTTP_AUTHORIZATION": "Bearer " + data["access"]}
 
         # Can't publish someone else's resource
@@ -246,6 +249,7 @@ class LtiFlowTests(TestCase):
 class LibraryTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user("owner", "o@example.com", "pw-123456")
+        set_role(self.owner, "teacher")  # only teachers can save/share to a class
         self.other = User.objects.create_user("other", "x@example.com", "pw-123456")
 
     def test_save_list_and_private_by_default(self):

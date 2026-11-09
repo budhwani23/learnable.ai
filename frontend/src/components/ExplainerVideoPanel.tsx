@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Clapperboard, Download, Loader2, RotateCcw, AlertCircle, ScrollText } from "lucide-react";
 import type { ExplainerVideoState } from "@/hooks/useExplainerVideo";
 import ShareToClassButton from "@/components/ShareToClassButton";
+import { useAuth } from "@/hooks/useAuth";
 
 interface ExplainerVideoPanelProps {
   explainer: ExplainerVideoState;
@@ -36,6 +37,7 @@ const ExplainerVideoPanel: React.FC<ExplainerVideoPanelProps> = ({
   onGenerate,
 }) => {
   const [focus, setFocus] = useState("");
+  const { isTeacher } = useAuth();
   const { job, videoUrl, isStarting, isActive, uploadProgress, error, reset } = explainer;
 
   const fileName = `${(job?.title || "explainer").replace(/[^\w\- ]+/g, "").trim() || "explainer"}.mp4`;
@@ -75,7 +77,9 @@ const ExplainerVideoPanel: React.FC<ExplainerVideoPanelProps> = ({
         )}
 
         <div className="flex justify-end gap-2">
-          <ShareToClassButton type="video" explainerJobId={job.id} defaultTitle={job.title || "Explainer video"} />
+          {isTeacher && (
+            <ShareToClassButton type="video" explainerJobId={job.id} defaultTitle={job.title || "Explainer video"} />
+          )}
           {videoUrl && (
             <Button variant="secondary" asChild>
               <a href={videoUrl} download={fileName}>

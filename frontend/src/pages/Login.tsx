@@ -1,4 +1,4 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -6,13 +6,26 @@ import { useAuth } from '@/hooks/useAuth';
 import { Card } from '@/components/ui/card';
 import { Eye, EyeOff, Mail, Lock } from 'lucide-react';
 import Header from '@/components/Header';
+import RoleToggle from '@/components/RoleToggle';
+import { parseRole, ROLE_COPY } from '@/lib/roles';
+import type { Role } from '@/lib/types';
 
 export default function Login() {
   const navigate = useNavigate();
+  const { search } = useLocation();
+  const params = useParams<{ role?: string }>();
+  const role = parseRole(params.role ?? new URLSearchParams(search).get('role'));
+  const copy = ROLE_COPY[role];
   // Honour ?redirect=/r/<id> (shared class links); only same-site paths, never "//host".
-  const requested = new URLSearchParams(window.location.search).get('redirect') || '';
+  const requested = new URLSearchParams(search).get('redirect') || '';
   const redirect = requested.startsWith('/') && !requested.startsWith('//') ? requested : '/input';
   const { login } = useAuth();
+
+  // Keep ?redirect= when switching between the student and teacher pages.
+  const switchRole = (r: Role) => {
+    setError('');
+    navigate({ pathname: `/login/${r}`, search }, { replace: true });
+  };
 
   const [username, setU] = useState('');
   const [password, setP] = useState('');
@@ -26,10 +39,10 @@ export default function Login() {
     setLoading(true);
     setError('');
     try {
-      await login(username, password);
+      await login(username, password, role);
       navigate(redirect, { replace: true });
-    } catch {
-      setError('Invalid credentials');
+    } catch (err) {
+      setError(err instanceof Error && err.message ? err.message : 'Invalid credentials');
     } finally {
       setLoading(false);
     }
@@ -52,10 +65,12 @@ export default function Login() {
               </div>
             </div>
 
-            <div className="text-center mb-6">
-              <h1 className="text-2xl font-semibold text-emerald-700">Welcome back to HopNote!</h1>
-              <p className="mt-2 text-sm text-gray-600">Login to bring your words, data, and teams together. For free</p>
+            <div className="text-center mb-5">
+              <h1 className="text-2xl font-semibold text-emerald-700">{copy.signIn}</h1>
+              <p className="mt-2 text-sm text-gray-600">{copy.signInBlurb}</p>
             </div>
+
+            <RoleToggle role={role} onChange={switchRole} />
 
             <form onSubmit={onSubmit} className="space-y-4">
               {error && <div className="text-red-600 text-sm bg-red-50 border border-red-200 rounded px-3 py-2">{error}</div>}
@@ -98,14 +113,12 @@ export default function Login() {
               </div>
 
               <Button type="submit" className="w-full h-11 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white shadow-md" disabled={loading}>
-                {loading ? 'Signing in…' : 'Get Started'}
+                {loading ? 'Signing in…' : `Sign in as a ${role}`}
               </Button>
 
-
-
               <div className="text-sm text-center text-gray-600">
-                Don’t have an account?{' '}
-                <Link to="/register" className="text-emerald-600 hover:underline">Create one</Link>
+                Don’t have a {role} account?{' '}
+                <Link to={`/register/${role}${search}`} className="text-emerald-600 hover:underline">Create one</Link>
               </div>
             </form>
           </Card>

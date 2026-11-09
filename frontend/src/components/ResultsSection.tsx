@@ -12,6 +12,7 @@ import { convertMindmapToMermaid } from "@/utils/mindmapToMermaid";
 import MindmapViewer from "@/components/MindmapViewer";
 import ShareToClassButton from "@/components/ShareToClassButton";
 import ExportMenu from "@/components/ExportMenu";
+import { useAuth } from "@/hooks/useAuth";
 import { defaultTitle, payloadFor, type ResourceType } from "@/lib/library";
 import type { MCQQuestion } from "@/lib/types";
 
@@ -92,7 +93,10 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
   );
 };
 
-const ResultsSection: React.FC<ResultsSectionProps> = ({ results, activeTab, onRegenerate, isRegenerating = false, allowShare = false }) => {
+const ResultsSection: React.FC<ResultsSectionProps> = ({ results, activeTab, onRegenerate, isRegenerating = false, allowShare: allowShareProp = false }) => {
+  // Sharing to a class is for teacher accounts only.
+  const { isTeacher } = useAuth();
+  const allowShare = allowShareProp && isTeacher;
   const { toast } = useToast();
   const [quizState, setQuizState] = useState<QuizState>({
     currentQuestion: 0,

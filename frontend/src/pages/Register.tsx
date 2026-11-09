@@ -1,4 +1,4 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -6,11 +6,25 @@ import { useAuth } from '@/hooks/useAuth';
 import { Card } from '@/components/ui/card';
 import { Eye, EyeOff, Mail, Lock, User as UserIcon } from 'lucide-react';
 import Header from '@/components/Header';
+import RoleToggle from '@/components/RoleToggle';
+import { parseRole, ROLE_COPY } from '@/lib/roles';
+import type { Role } from '@/lib/types';
 
 export default function Register() {
   const navigate = useNavigate();
-  const redirect = '/input';
+  const { search } = useLocation();
+  const params = useParams<{ role?: string }>();
+  const role = parseRole(params.role ?? new URLSearchParams(search).get('role'));
+  const copy = ROLE_COPY[role];
+  // Same rule as the sign-in page: only same-site paths.
+  const requested = new URLSearchParams(search).get('redirect') || '';
+  const redirect = requested.startsWith('/') && !requested.startsWith('//') ? requested : '/input';
   const { register } = useAuth();
+
+  const switchRole = (r: Role) => {
+    setError('');
+    navigate({ pathname: `/register/${r}`, search }, { replace: true });
+  };
 
   const [username, setU] = useState('');
   const [email, setE] = useState('');
@@ -25,10 +39,10 @@ export default function Register() {
     setLoading(true);
     setError('');
     try {
-      await register(username, email, password);
+      await register(username, email, password, role);
       navigate(redirect, { replace: true });
-    } catch {
-      setError('Registration failed');
+    } catch (err) {
+      setError(err instanceof Error && err.message ? err.message : 'Registration failed');
     } finally {
       setLoading(false);
     }
@@ -51,10 +65,12 @@ export default function Register() {
               </div>
             </div>
 
-            <div className="text-center mb-6">
-              <h1 className="text-2xl font-semibold text-green-700">Create your account</h1>
-              <p className="mt-2 text-sm text-gray-600">Start learning smarter today. It only takes a minute.</p>
+            <div className="text-center mb-5">
+              <h1 className="text-2xl font-semibold text-green-700">{copy.signUp}</h1>
+              <p className="mt-2 text-sm text-gray-600">{copy.signUpBlurb}</p>
             </div>
+
+            <RoleToggle role={role} onChange={switchRole} />
 
             <form onSubmit={onSubmit} className="space-y-4">
               {error && <div className="text-red-600 text-sm bg-red-50 border border-red-200 rounded px-3 py-2">{error}</div>}
@@ -102,12 +118,12 @@ export default function Register() {
               </div>
 
               <Button type="submit" className="w-full h-11 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white shadow-md" disabled={loading}>
-                {loading ? 'Creating account…' : 'Create Account'}
+                {loading ? 'Creating account…' : `Create ${role} account`}
               </Button>
 
               <div className="text-sm text-center text-gray-600">
-                Already have an account?{' '}
-                <Link to="/login" className="text-emerald-600 hover:underline">Sign in</Link>
+                Already have a {role} account?{' '}
+                <Link to={`/login/${role}${search}`} className="text-emerald-600 hover:underline">Sign in</Link>
               </div>
             </form>
           </Card>

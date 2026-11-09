@@ -3,6 +3,7 @@
 
 import { API_CONFIG, API_ENDPOINTS, ERROR_MESSAGES } from './constants';
 import type {
+  Role,
   ApiResponse,
   SummarizeTextInput,
   SummarizeTextOutput,
@@ -217,26 +218,32 @@ class ApiClient {
   }
 
   // Public auth helpers
-  async login(username: string, password: string) {
-    const data = await this.makeRequest<{ access: string; refresh: string }>(
-      API_ENDPOINTS.AUTH_LOGIN,
-      { method: 'POST', body: JSON.stringify({ username, password }) }
-    );
+  /** POST an auth form and surface the server's `detail` message on failure. */
+  private async authPost(endpoint: string, body: object, fallback: string) {
+    const res = await fetch(`${this.baseUrl}${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const detail = typeof data.detail === 'string' ? data.detail : null;
+      throw new Error(detail || (res.status === 422 ? 'Please check the details you entered.' : fallback));
+    }
     this.setTokens(data.access, data.refresh);
-    return data;
+    return data as { access: string; refresh: string };
   }
 
-  async register(username: string, email: string, password: string) {
-    const data = await this.makeRequest<{ access: string; refresh: string }>(
-      API_ENDPOINTS.AUTH_REGISTER,
-      { method: 'POST', body: JSON.stringify({ username, email, password }) }
-    );
-    this.setTokens(data.access, data.refresh);
-    return data;
+  async login(username: string, password: string, role?: Role) {
+    return this.authPost(API_ENDPOINTS.AUTH_LOGIN, { username, password, role }, 'Invalid credentials');
+  }
+
+  async register(username: string, email: string, password: string, role: Role) {
+    return this.authPost(API_ENDPOINTS.AUTH_REGISTER, { username, email, password, role }, 'Registration failed');
   }
 
   async me() {
-    return this.makeRequest<{ id: number; username: string; email: string; credits: number }>(
+    return this.makeRequest<{ id: number; username: string; email: string; credits: number; role: Role }>(
       API_ENDPOINTS.AUTH_ME,
       { method: 'GET' },
       true
