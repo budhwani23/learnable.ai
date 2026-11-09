@@ -142,6 +142,44 @@ export interface ExplainerJobResponse {
   job: ExplainerJob;
 }
 
+// Presentation (slide deck) Types
+export interface PresentationJob {
+  id: string;
+  status: ExplainerJobStatus;
+  stage: string;
+  progress: number;
+  message: string;
+  error?: string | null;
+  title?: string | null;
+  source_type: string;
+  source_label: string;
+  focus?: string | null;
+  n_slides: number;
+  template: string;
+  tone: string;
+  slide_count: number;
+  has_pptx: boolean;
+  has_pdf: boolean;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface PresentationJobResponse {
+  success: boolean;
+  job: PresentationJob;
+}
+
+export interface PresentationOption {
+  id: string;
+  name: string;
+}
+
+export interface PresentationOptions {
+  success: boolean;
+  templates: PresentationOption[];
+  tones: PresentationOption[];
+}
+
 // Processing State Types
 export type ProcessingState = 'idle' | 'uploading' | 'processing' | 'success' | 'error';
 

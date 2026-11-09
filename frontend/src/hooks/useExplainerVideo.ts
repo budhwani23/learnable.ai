@@ -4,9 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import apiClient from '@/lib/api';
 import type { ExplainerJob } from '@/lib/types';
-
-const POLL_INTERVAL_MS = 4000;
-const STORAGE_KEY = 'explainer_active_job';
+import { useJobPolling } from './useJobPolling';
 
 export interface StartExplainerInput {
   audioFile?: File;
@@ -16,52 +14,27 @@ export interface StartExplainerInput {
   focus?: string;
 }
 
-const readStoredJobId = (): string | null => {
-  try { return localStorage.getItem(STORAGE_KEY); } catch { return null; }
-};
-const storeJobId = (id: string | null) => {
-  try {
-    if (id) localStorage.setItem(STORAGE_KEY, id);
-    else localStorage.removeItem(STORAGE_KEY);
-  } catch { /* storage unavailable — polling just won't survive a reload */ }
-};
+const startJob = (input: StartExplainerInput, onProgress: (p: number) => void) =>
+  apiClient.startExplainerVideo(
+    input.audioFile, input.videoFile, input.documentFile, input.text, input.focus, onProgress
+  );
+const getJob = (id: string) => apiClient.getExplainerJob(id);
 
 export const useExplainerVideo = () => {
-  const [job, setJob] = useState<ExplainerJob | null>(null);
+  const polling = useJobPolling<ExplainerJob, StartExplainerInput>({
+    storageKey: 'explainer_active_job',
+    getJob,
+    startJob,
+  });
+  const { job, setError } = polling;
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [isStarting, setIsStarting] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [error, setError] = useState<string | null>(null);
   const videoUrlRef = useRef<string | null>(null);
-
-  const isActive = !!job && (job.status === 'queued' || job.status === 'running');
 
   const setBlobUrl = (url: string | null) => {
     if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
     videoUrlRef.current = url;
     setVideoUrl(url);
   };
-
-  // Resume a job that was in flight before a page reload.
-  useEffect(() => {
-    const id = readStoredJobId();
-    if (!id) return;
-    apiClient.getExplainerJob(id).then(setJob).catch(() => storeJobId(null));
-  }, []);
-
-  // Poll while the job is queued/running.
-  useEffect(() => {
-    if (!job || !isActive) return;
-    const timer = window.setTimeout(async () => {
-      try {
-        setJob(await apiClient.getExplainerJob(job.id));
-      } catch (e) {
-        // transient network error: keep the job and try again on the next tick
-        setJob(prev => (prev ? { ...prev } : prev));
-      }
-    }, POLL_INTERVAL_MS);
-    return () => window.clearTimeout(timer);
-  }, [job, isActive]);
 
   // Load the video once the job succeeds.
   useEffect(() => {
@@ -71,37 +44,21 @@ export const useExplainerVideo = () => {
       .then(blob => { if (!cancelled) setBlobUrl(URL.createObjectURL(blob)); })
       .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : 'Could not load video'); });
     return () => { cancelled = true; };
-  }, [job]);
+  }, [job, setError]);
 
   useEffect(() => () => { if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current); }, []);
 
   const start = useCallback(async (input: StartExplainerInput) => {
-    setError(null);
     setBlobUrl(null);
-    setIsStarting(true);
-    setUploadProgress(0);
-    try {
-      const newJob = await apiClient.startExplainerVideo(
-        input.audioFile, input.videoFile, input.documentFile, input.text, input.focus,
-        setUploadProgress
-      );
-      setJob(newJob);
-      storeJobId(newJob.id);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not start video generation');
-    } finally {
-      setIsStarting(false);
-    }
-  }, []);
+    await polling.start(input);
+  }, [polling]);
 
   const reset = useCallback(() => {
-    setJob(null);
-    setError(null);
     setBlobUrl(null);
-    storeJobId(null);
-  }, []);
+    polling.reset();
+  }, [polling]);
 
-  return { job, videoUrl, isStarting, isActive, uploadProgress, error, start, reset };
+  return { ...polling, videoUrl, start, reset };
 };
 
 export type ExplainerVideoState = ReturnType<typeof useExplainerVideo>;

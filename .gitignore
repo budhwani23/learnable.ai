@@ -431,3 +431,6 @@ __marimo__/
 .streamlit/secrets.toml
 # Generated explainer videos / uploads
 backend/media/
+
+# Presenton (slide generation) data volume
+presenton_data/

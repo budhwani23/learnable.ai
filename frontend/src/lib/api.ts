@@ -17,6 +17,9 @@ import type {
   FlashcardOutput,
   ExplainerJob,
   ExplainerJobResponse,
+  PresentationJob,
+  PresentationJobResponse,
+  PresentationOptions,
   ApiError
 } from './types';
 
@@ -471,7 +474,7 @@ class ApiClient {
   }
 
   // =====================
-  // AI explainer video (AUTH) � long-running background job
+  // AI explainer video (AUTH) — long-running background job
   // =====================
   async startExplainerVideo(
     audioFile?: File,
@@ -508,16 +511,74 @@ class ApiClient {
     return res.job;
   }
 
-  // Fetch the finished MP4 with auth and return it as a Blob (a <video> tag
-  // can't send the Authorization header itself).
-  async fetchExplainerVideo(jobId: string): Promise<Blob> {
-    const url = `${this.baseUrl}${API_ENDPOINTS.EXPLAINER_JOBS}/${encodeURIComponent(jobId)}/video`;
+  // Authenticated binary download (a <video>/<iframe> can't send the Authorization header).
+  private async fetchAuthorizedBlob(path: string, what: string): Promise<Blob> {
+    const url = `${this.baseUrl}${path}`;
     let res = await fetch(url, { headers: this.buildAuthHeaders() });
     if (res.status === 401 && (await this.refreshTokensOnce())) {
       res = await fetch(url, { headers: this.buildAuthHeaders() });
     }
-    if (!res.ok) throw new Error(`Could not load the video (status ${res.status})`);
+    if (!res.ok) throw new Error(`Could not load the ${what} (status ${res.status})`);
     return res.blob();
+  }
+
+  async fetchExplainerVideo(jobId: string): Promise<Blob> {
+    return this.fetchAuthorizedBlob(
+      `${API_ENDPOINTS.EXPLAINER_JOBS}/${encodeURIComponent(jobId)}/video`, 'video'
+    );
+  }
+
+  // =====================
+  // Presentations / slide decks (AUTH) — background job via self-hosted Presenton
+  // =====================
+  async getPresentationOptions(): Promise<PresentationOptions> {
+    return this.makeRequest<PresentationOptions>(API_ENDPOINTS.PRESENTATION_OPTIONS, { method: 'GET' }, true);
+  }
+
+  async startPresentation(
+    params: {
+      audioFile?: File;
+      videoFile?: File;
+      documentFile?: File;
+      text?: string;
+      focus?: string;
+      nSlides: number;
+      template: string;
+      tone: string;
+    },
+    onProgress?: (progress: number) => void
+  ): Promise<PresentationJob> {
+    const { audioFile, videoFile, documentFile, text, focus, nSlides, template, tone } = params;
+    const formData = new FormData();
+    formData.append('data', JSON.stringify({
+      ...(text && text.trim() ? { text } : {}),
+      ...(focus && focus.trim() ? { focus } : {}),
+      n_slides: nSlides,
+      template,
+      tone,
+    }));
+    if (audioFile) formData.append('audio_file', audioFile);
+    if (videoFile) formData.append('video_file', videoFile);
+    if (documentFile) formData.append('document_file', documentFile);
+
+    const res = await this.makeFileRequest<PresentationJobResponse>(
+      API_ENDPOINTS.PRESENTATION_JOBS, formData, onProgress, true
+    );
+    return res.job;
+  }
+
+  async getPresentationJob(jobId: string): Promise<PresentationJob> {
+    const res = await this.makeRequest<PresentationJobResponse>(
+      `${API_ENDPOINTS.PRESENTATION_JOBS}/${encodeURIComponent(jobId)}`, { method: 'GET' }, true
+    );
+    return res.job;
+  }
+
+  async fetchPresentationFile(jobId: string, format: 'pptx' | 'pdf'): Promise<Blob> {
+    return this.fetchAuthorizedBlob(
+      `${API_ENDPOINTS.PRESENTATION_JOBS}/${encodeURIComponent(jobId)}/file?format=${format}`,
+      format === 'pdf' ? 'PDF preview' : 'presentation'
+    );
   }
 
   // Process all types (summary, mindmap, quiz, flashcards) from multimedia

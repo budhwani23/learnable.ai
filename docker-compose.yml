@@ -1,0 +1,30 @@
+# Sidecar services for learnable.ai.
+#
+# Presenton (https://github.com/presenton/presenton, Apache-2.0) generates the
+# student slide decks. Start it with the backend's env file so it reuses the
+# same Gemini key:
+#
+#   docker compose --env-file backend/.env up -d presenton
+#
+# Local development runs Presenton in single-user mode (DISABLE_AUTH) and binds
+# it to 127.0.0.1 only. For any shared/production deployment, remove
+# DISABLE_AUTH, finish the admin setup in Presenton's UI, create an API key under
+# Admin -> API keys, and set PRESENTON_API_KEY in backend/.env.
+services:
+  presenton:
+    image: ghcr.io/presenton/presenton:latest
+    container_name: learnable-presenton
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5001:80"
+    volumes:
+      - ./presenton_data:/app_data
+    environment:
+      LLM: google
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:?set GOOGLE_API_KEY in backend/.env}
+      GOOGLE_MODEL: ${PRESENTON_GOOGLE_MODEL:-models/gemini-2.5-flash}
+      IMAGE_PROVIDER: ${PRESENTON_IMAGE_PROVIDER:-gemini_flash}
+      PRESENTON_PUBLIC_URL: http://localhost:5001
+      # Keep student content private: don't publish decks to Presenton's community gallery.
+      PRESENTON_COMMUNITY_ENABLED: "false"
+      DISABLE_AUTH: ${PRESENTON_DISABLE_AUTH:-true}

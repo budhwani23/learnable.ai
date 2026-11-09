@@ -50,6 +50,8 @@ export const API_ENDPOINTS = {
   GENERATE_FLASHCARDS: '/learning/generate-flashcards',
   GENERATE_FLASHCARDS_MULTIMEDIA: '/learning/generate-flashcards-multimedia',
   EXPLAINER_JOBS: '/explainer/jobs',
+  PRESENTATION_JOBS: '/presentations/jobs',
+  PRESENTATION_OPTIONS: '/presentations/options',
   HEALTH_CHECK: '/learning/hello',
   AUTH_LOGIN: '/users/auth/login',
   AUTH_REGISTER: '/users/auth/register',

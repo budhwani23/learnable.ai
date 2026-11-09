@@ -1,5 +1,4 @@
 # explainer/api.py
-import os
 from typing import Optional
 
 from django.http import FileResponse, Http404
@@ -7,23 +6,13 @@ from ninja import File, Schema
 from ninja.files import UploadedFile
 from ninja.router import Router
 
-from constants import (
-    ALLOWED_AUDIO_EXTENSIONS, ALLOWED_DOCUMENT_EXTENSIONS, ALLOWED_VIDEO_EXTENSIONS,
-)
 from users.security import JWTAuth
-from utils.youtube import is_youtube_url
 
 from . import jobs
 from .service import run_explainer_job
+from .sources import describe_input, save_upload
 
 router = Router(auth=JWTAuth())
-
-MAX_UPLOAD_BYTES = 50 * 1024 * 1024
-ALLOWED = {
-    "audio": ALLOWED_AUDIO_EXTENSIONS,
-    "video": ALLOWED_VIDEO_EXTENSIONS,
-    "document": ALLOWED_DOCUMENT_EXTENSIONS,
-}
 
 
 class ExplainerVideoInput(Schema):
@@ -50,40 +39,13 @@ def create_explainer_job(
     Start generating an AI explainer video from text, a YouTube URL, or an
     uploaded audio / video / document file. Returns a job to poll.
     """
-    text = (data.text or "").strip() if data else ""
     focus = ((data.focus or "").strip()[:300] or None) if data else None
+    spec, error = describe_input(data.text if data else "", audio_file, video_file, document_file)
+    if error:
+        return {"error": error}
 
-    upload, kind = None, None
-    for k, f in (("audio", audio_file), ("video", video_file), ("document", document_file)):
-        if f:
-            upload, kind = f, k
-            break
-
-    if upload:
-        ext = os.path.splitext(upload.name or "")[1].lower()
-        if ext not in ALLOWED[kind]:
-            return {"error": f"Unsupported {kind} format. Allowed: {', '.join(ALLOWED[kind])}"}
-        if upload.size > MAX_UPLOAD_BYTES:
-            return {"error": "File size exceeds the 50MB limit."}
-        source_type = kind
-        source_label = os.path.basename(upload.name)[:200]
-    elif text:
-        source_type = "youtube" if is_youtube_url(text) else "text"
-        source_label = text if source_type == "youtube" else (text[:80] + ("..." if len(text) > 80 else ""))
-    else:
-        return {"error": "No content provided. Please enter text, a YouTube URL, or upload a file."}
-
-    job = jobs.create_job(request.auth.id, source_type, source_label, focus)
-    extra = {"text": text} if not upload else {}
-    if upload:
-        input_dir = jobs.job_dir(job["id"]) / "input"
-        input_dir.mkdir(parents=True, exist_ok=True)
-        input_path = input_dir / f"source{ext}"
-        with open(input_path, "wb") as out:
-            for chunk in upload.chunks():
-                out.write(chunk)
-        extra["input_path"] = str(input_path)
-    jobs.update_job(job["id"], **extra)
+    job = jobs.create_job(request.auth.id, spec["source_type"], spec["source_label"], focus)
+    jobs.update_job(job["id"], **save_upload(spec, jobs.job_dir(job["id"])))
 
     jobs.submit(job["id"], run_explainer_job)
     return {"success": True, "job": jobs.public_view(jobs.get_job(job["id"]))}

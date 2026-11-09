@@ -46,7 +46,9 @@ import type { ProcessingResults } from "@/lib/types";
 import ResultsSection from "@/components/ResultsSection";
 import ExplainerVideoPanel from "@/components/ExplainerVideoPanel";
 import { useExplainerVideo } from "@/hooks/useExplainerVideo";
-import { Clapperboard } from "lucide-react";
+import { Clapperboard, Presentation } from "lucide-react";
+import PresentationPanel, { type PresentationSettings } from "@/components/PresentationPanel";
+import { usePresentation } from "@/hooks/usePresentation";
 
 type InputSectionProps = ReturnType<typeof useFileUpload> &
   Omit<ReturnType<typeof useProcessing>, 'summarizeTextMutation'> &
@@ -77,6 +79,7 @@ const InputSection: React.FC<InputSectionProps> = ({
   const [inputMethod, setInputMethod] = useState<"text" | "file" | "url">("text");
   const { toast } = useToast();
   const explainer = useExplainerVideo();
+  const presentation = usePresentation();
 
   // Start an AI explainer-video job from whichever input method is active
   const handleGenerateVideo = (focus: string) => {
@@ -93,6 +96,22 @@ const InputSection: React.FC<InputSectionProps> = ({
   
   // Custom hooks
   const { hasApiKey, validateApiKey } = useApiKey();
+
+  // Start a slide-deck job from whichever input method is active
+  const handleGeneratePresentation = ({ focus, nSlides, template, tone }: PresentationSettings) => {
+    const findFile = (exts: string[]) => uploadedFiles.find(f => exts.includes(f.extension))?.file;
+    const useFiles = inputMethod === "file";
+    presentation.start({
+      audioFile: useFiles ? findFile(SUPPORTED_FILE_TYPES.AUDIO) : undefined,
+      videoFile: useFiles ? findFile(SUPPORTED_FILE_TYPES.VIDEO) : undefined,
+      documentFile: useFiles ? findFile(SUPPORTED_FILE_TYPES.DOCUMENTS) : undefined,
+      text: inputMethod === "text" ? textInput : inputMethod === "url" ? urlInput : undefined,
+      focus,
+      nSlides,
+      template,
+      tone,
+    });
+  };
 
   // Check if processing is in progress
   const isProcessing = processingStatus.state === 'processing' || processingStatus.state === 'uploading';
@@ -232,6 +251,7 @@ const InputSection: React.FC<InputSectionProps> = ({
         setUrlInput("");             // Clear URL input
         setActiveTab("summary");     // Optional: Reset to summary tab
         if (!explainer.isActive) explainer.reset(); // keep tracking a video that is still rendering
+        if (!presentation.isActive) presentation.reset();
         // Optionally clear processing status if needed
         // Reset results
         if (results) {
@@ -358,7 +378,7 @@ const InputSection: React.FC<InputSectionProps> = ({
               
               {/* Content Type Tabs */}
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                <TabsList className="grid w-full grid-cols-5 mb-6 bg-emerald-600">
+                <TabsList className="grid w-full h-auto grid-cols-3 sm:grid-cols-6 gap-1 mb-6 bg-emerald-600">
                   <TabsTrigger value="summary" className="flex items-center gap-2 text-white">
                     <FileText className="h-4 w-4" />
                     <div className="text-sm mr-2">Summary</div>
@@ -378,6 +398,10 @@ const InputSection: React.FC<InputSectionProps> = ({
                   <TabsTrigger value="video" className="flex items-center gap-2 text-white">
                     <Clapperboard className="h-4 w-4" />
                     <div className="text-sm mr-1">Video</div>
+                  </TabsTrigger>
+                  <TabsTrigger value="slides" className="flex items-center gap-2 text-white">
+                    <Presentation className="h-4 w-4" />
+                    <div className="text-sm mr-1">Slides</div>
                   </TabsTrigger>
                 </TabsList>
 
@@ -537,6 +561,15 @@ const InputSection: React.FC<InputSectionProps> = ({
                     hasContent={hasContent()}
                     disabled={isProcessing}
                     onGenerate={handleGenerateVideo}
+                  />
+                </TabsContent>
+
+                <TabsContent value="slides" className="space-y-4">
+                  <PresentationPanel
+                    presentation={presentation}
+                    hasContent={hasContent()}
+                    disabled={isProcessing}
+                    onGenerate={handleGeneratePresentation}
                   />
                 </TabsContent>
 
