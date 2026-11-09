@@ -2,7 +2,8 @@
 # EC2 host behind CloudFront (eu-west-1) through SSM Run Command (deploy/ec2-deploy.sh).
 #
 # AWS access uses GitHub OIDC (no AWS keys stored here): the role in vars.AWS_ROLE_ARN
-# trusts only pushes to refs/heads/dev of this repository.
+# trusts this repository's 'dev' environment (OIDC sub repo:<repo>:environment:dev),
+# and that environment only accepts deployments from the dev branch.
 #
 # Repository variables: AWS_ROLE_ARN, ECR_REPOSITORY_URI, EC2_INSTANCE_ID, APP_URL,
 #                       (optional) VITE_GOOGLE_CLIENT_ID
