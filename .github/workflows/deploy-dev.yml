@@ -1,12 +1,14 @@
-# Push to dev → test → build the single Docker image → deploy to Amazon Lightsail (eu-west-1).
+# Push to dev → test → build the single Docker image → push to ECR → deploy to the
+# EC2 host behind CloudFront (eu-west-1) through SSM Run Command (deploy/ec2-deploy.sh).
 #
 # AWS access uses GitHub OIDC (no AWS keys stored here): the role in vars.AWS_ROLE_ARN
 # trusts only pushes to refs/heads/dev of this repository.
 #
-# Repository variables: AWS_ROLE_ARN, LIGHTSAIL_SERVICE, (optional) VITE_GOOGLE_CLIENT_ID
-# Repository secrets:   DJANGO_SECRET_KEY, DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD,
-#                       GOOGLE_API_KEY, (optional) GOOGLE_OAUTH_CLIENT_ID
-# scripts/setup-github-deploy.sh sets them from backend/.env.
+# Repository variables: AWS_ROLE_ARN, ECR_REPOSITORY_URI, EC2_INSTANCE_ID, APP_URL,
+#                       (optional) VITE_GOOGLE_CLIENT_ID
+# Environment 'dev' secrets: DJANGO_SECRET_KEY, DB_HOST, DB_PORT, DB_NAME, DB_USER,
+#                       DB_PASSWORD, GOOGLE_API_KEY, (optional) GOOGLE_OAUTH_CLIENT_ID
+# scripts/setup-github-deploy.sh sets them (secrets from backend/.env).
 name: Deploy dev
 
 on:
@@ -79,7 +81,7 @@ jobs:
         run: npx eslint src
 
   deploy:
-    name: Build and deploy to Lightsail
+    name: Build and deploy to EC2
     needs: test
     runs-on: ubuntu-latest
     environment: dev
@@ -87,7 +89,7 @@ jobs:
       contents: read
       id-token: write   # for the OIDC token exchanged for the AWS role
     env:
-      SERVICE: ${{ vars.LIGHTSAIL_SERVICE }}
+      IMAGE: ${{ vars.ECR_REPOSITORY_URI }}:${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
 
@@ -96,30 +98,19 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Install lightsailctl
-        run: |
-          sudo curl -fsSL "https://s3.us-west-2.amazonaws.com/lightsailctl/latest/linux-amd64/lightsailctl" -o /usr/local/bin/lightsailctl
-          sudo chmod +x /usr/local/bin/lightsailctl
+      - name: Log in to ECR
+        run: >-
+          aws ecr get-login-password --region "$AWS_REGION"
+          | docker login --username AWS --password-stdin "${IMAGE%%/*}"
 
-      - name: Build image (linux/amd64)
+      - name: Build and push image (linux/amd64)
         run: |
-          docker build --platform linux/amd64 \
-            --build-arg VITE_GOOGLE_CLIENT_ID="${{ vars.VITE_GOOGLE_CLIENT_ID }}" \
-            -t learnable:${{ github.sha }} .
+          docker build --platform linux/amd64 --build-arg VITE_GOOGLE_CLIENT_ID="${{ vars.VITE_GOOGLE_CLIENT_ID }}" -t "$IMAGE" .
+          docker push "$IMAGE"
 
-      - name: Push image to the Lightsail registry
-        id: push
-        run: |
-          out=$(aws lightsail push-container-image --service-name "$SERVICE" --label app \
-                  --image "learnable:${{ github.sha }}" --region "$AWS_REGION")
-          echo "$out"
-          ref=$(echo "$out" | grep -o '":[^"]*"' | tail -1 | tr -d '"')
-          test -n "$ref" || { echo "Could not read the pushed image reference"; exit 1; }
-          echo "image=$ref" >> "$GITHUB_OUTPUT"
-
-      - name: Create deployment
+      - name: Store app settings in SSM Parameter Store (encrypted)
         env:
-          IMAGE: ${{ steps.push.outputs.image }}
+          APP_URL: ${{ vars.APP_URL }}
           DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
           DB_HOST: ${{ secrets.DB_HOST }}
           DB_PORT: ${{ secrets.DB_PORT }}
@@ -129,61 +120,53 @@ jobs:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
         run: |
-          url=$(aws lightsail get-container-services --service-name "$SERVICE" --region "$AWS_REGION" \
-                  --query 'containerServices[0].url' --output text)
-          host=$(echo "$url" | sed -E 's#^https?://##; s#/.*$##')
-          origin="https://$host"
-          containers=$(jq -n \
-            --arg image "$IMAGE" --arg host "$host" --arg origin "$origin" --arg sha "${{ github.sha }}" \
-            --arg secret "$DJANGO_SECRET_KEY" --arg dbhost "$DB_HOST" --arg dbport "$DB_PORT" \
-            --arg dbname "$DB_NAME" --arg dbuser "$DB_USER" --arg dbpass "$DB_PASSWORD" \
-            --arg gkey "$GOOGLE_API_KEY" --arg gclient "$GOOGLE_OAUTH_CLIENT_ID" '{
-              app: {
-                image: $image,
-                ports: {"8000": "HTTP"},
-                environment: {
-                  DJANGO_DEBUG: "false",
-                  DJANGO_SECRET_KEY: $secret,
-                  DJANGO_ALLOWED_HOSTS: ($host + ",localhost,127.0.0.1"),
-                  CSRF_TRUSTED_ORIGINS: $origin,
-                  FRONTEND_URL: $origin,
-                  DB_HOST: $dbhost, DB_PORT: $dbport, DB_NAME: $dbname,
-                  DB_USER: $dbuser, DB_PASSWORD: $dbpass, DB_SSLMODE: "require",
-                  GOOGLE_API_KEY: $gkey,
-                  GOOGLE_OAUTH_CLIENT_ID: $gclient,
-                  GIT_SHA: $sha
-                }
-              }
-            }')
-          endpoint='{"containerName":"app","containerPort":8000,"healthCheck":{"path":"/healthz","intervalSeconds":15,"timeoutSeconds":5,"healthyThreshold":2,"unhealthyThreshold":4,"successCodes":"200"}}'
-          aws lightsail create-container-service-deployment --service-name "$SERVICE" --region "$AWS_REGION" \
-            --containers "$containers" --public-endpoint "$endpoint" \
-            --query 'containerService.nextDeployment.version' --output text > version.txt
-          echo "Deployment version $(cat version.txt) created for $IMAGE"
+          host="${APP_URL#https://}"; host="${host%%/*}"
+          env_file=$(mktemp)
+          {
+            echo "DJANGO_DEBUG=false"
+            echo "DJANGO_SECRET_KEY=$DJANGO_SECRET_KEY"
+            echo "DJANGO_ALLOWED_HOSTS=$host,localhost,127.0.0.1"
+            echo "CSRF_TRUSTED_ORIGINS=$APP_URL"
+            echo "FRONTEND_URL=$APP_URL"
+            echo "SECURE_PROXY_SSL_HEADER_NAME=HTTP_CLOUDFRONT_FORWARDED_PROTO"
+            echo "DB_HOST=$DB_HOST"
+            echo "DB_PORT=$DB_PORT"
+            echo "DB_NAME=$DB_NAME"
+            echo "DB_USER=$DB_USER"
+            echo "DB_PASSWORD=$DB_PASSWORD"
+            echo "DB_SSLMODE=require"
+            echo "GOOGLE_API_KEY=$GOOGLE_API_KEY"
+            echo "GOOGLE_OAUTH_CLIENT_ID=$GOOGLE_OAUTH_CLIENT_ID"
+            echo "GIT_SHA=$GITHUB_SHA"
+          } > "$env_file"
+          aws ssm put-parameter --region "$AWS_REGION" --name /learnable/dev/env --type SecureString --overwrite --value "file://$env_file" > /dev/null
+          rm -f "$env_file"
+          echo "Settings stored."
 
-      - name: Wait for the deployment to become active
+      - name: Deploy on the EC2 host (SSM Run Command)
+        env:
+          INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
         run: |
-          version=$(cat version.txt)
-          for i in $(seq 1 60); do
-            state=$(aws lightsail get-container-service-deployments --service-name "$SERVICE" --region "$AWS_REGION" \
-                      --query "deployments[?version==\`$version\`].state | [0]" --output text)
-            echo "[$i] deployment $version: $state"
-            case "$state" in
-              ACTIVE) exit 0 ;;
-              FAILED)
-                aws lightsail get-container-log --service-name "$SERVICE" --container-name app \
-                  --region "$AWS_REGION" --query 'logEvents[-60:].message' --output text || true
-                exit 1 ;;
-            esac
-            sleep 15
+          remote=$(mktemp)
+          { echo "export IMAGE='$IMAGE' AWS_REGION='$AWS_REGION'"; cat deploy/ec2-deploy.sh; } > "$remote"
+          params=$(jq -n --rawfile s "$remote" '{commands: [$s], executionTimeout: ["900"]}')
+          cmd_id=$(aws ssm send-command --region "$AWS_REGION" --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript --comment "deploy $GITHUB_SHA" --parameters "$params" --query Command.CommandId --output text)
+          echo "SSM command $cmd_id"
+          status=Pending
+          for i in $(seq 1 80); do
+            sleep 10
+            status=$(aws ssm get-command-invocation --region "$AWS_REGION" --command-id "$cmd_id" --instance-id "$INSTANCE_ID" --query Status --output text 2>/dev/null || echo Pending)
+            echo "[$i] $status"
+            case "$status" in Success|Failed|Cancelled|TimedOut) break ;; esac
           done
-          echo "Timed out waiting for deployment $version"; exit 1
+          aws ssm get-command-invocation --region "$AWS_REGION" --command-id "$cmd_id" --instance-id "$INSTANCE_ID" --query '[StandardOutputContent, StandardErrorContent]' --output text || true
+          test "$status" = "Success"
 
-      - name: Smoke test
+      - name: Smoke test through CloudFront
+        env:
+          APP_URL: ${{ vars.APP_URL }}
         run: |
-          url=$(aws lightsail get-container-services --service-name "$SERVICE" --region "$AWS_REGION" \
-                  --query 'containerServices[0].url' --output text)
-          curl -fsS --retry 5 --retry-delay 5 "${url%/}/healthz"
-          curl -fsS -o /dev/null "${url%/}/"
-          echo "Live at $url"
-          echo "### Deployed to $url" >> "$GITHUB_STEP_SUMMARY"
+          curl -fsS --retry 6 --retry-delay 10 --retry-all-errors "$APP_URL/healthz"
+          curl -fsS -o /dev/null "$APP_URL/"
+          echo "Live at $APP_URL"
+          echo "### Deployed $GITHUB_SHA to $APP_URL" >> "$GITHUB_STEP_SUMMARY"

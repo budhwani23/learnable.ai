@@ -303,8 +303,9 @@ if os.getenv('CROSS_SITE_COOKIES', 'false').lower() in ('1', 'true', 'yes'):
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SAMESITE = 'None'
     CSRF_COOKIE_SECURE = True
-# Behind a TLS-terminating tunnel/proxy, trust its X-Forwarded-Proto so launches are seen as HTTPS.
-SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+# Behind a TLS-terminating tunnel/proxy, trust its protocol header so launches are seen as HTTPS.
+# CloudFront sends CloudFront-Forwarded-Proto (set SECURE_PROXY_SSL_HEADER_NAME=HTTP_CLOUDFRONT_FORWARDED_PROTO).
+SECURE_PROXY_SSL_HEADER = (os.getenv('SECURE_PROXY_SSL_HEADER_NAME', 'HTTP_X_FORWARDED_PROTO'), 'https')
 CSRF_TRUSTED_ORIGINS = [o.strip() for o in os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',') if o.strip()]
 # OAuth client id (web) used to verify Google Sign-In ID tokens for shared links.
 GOOGLE_OAUTH_CLIENT_ID = os.getenv('GOOGLE_OAUTH_CLIENT_ID', '')

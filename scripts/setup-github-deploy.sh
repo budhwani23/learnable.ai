@@ -10,7 +10,9 @@ set -euo pipefail
 REPO="${REPO:-budhwani23/learnable.ai}"
 ENV_FILE="${ENV_FILE:-backend/.env}"
 AWS_ROLE_ARN="${AWS_ROLE_ARN:-arn:aws:iam::123932467793:role/learnable-github-deploy-dev}"
-LIGHTSAIL_SERVICE="${LIGHTSAIL_SERVICE:-learnable-dev}"
+ECR_REPOSITORY_URI="${ECR_REPOSITORY_URI:-123932467793.dkr.ecr.eu-west-1.amazonaws.com/learnable}"
+EC2_INSTANCE_ID="${EC2_INSTANCE_ID:-i-037bead7d1163d110}"
+APP_URL="${APP_URL:-https://dp2km8sq14xta.cloudfront.net}"
 
 [ -f "$ENV_FILE" ] || { echo "Missing $ENV_FILE"; exit 1; }
 
@@ -34,7 +36,9 @@ gh api -X POST "repos/$REPO/environments/dev/deployment-branch-policies" --silen
 
 echo "Repository variables"
 gh variable set AWS_ROLE_ARN --repo "$REPO" --body "$AWS_ROLE_ARN"
-gh variable set LIGHTSAIL_SERVICE --repo "$REPO" --body "$LIGHTSAIL_SERVICE"
+gh variable set ECR_REPOSITORY_URI --repo "$REPO" --body "$ECR_REPOSITORY_URI"
+gh variable set EC2_INSTANCE_ID --repo "$REPO" --body "$EC2_INSTANCE_ID"
+gh variable set APP_URL --repo "$REPO" --body "$APP_URL"
 
 echo "Secrets (environment: dev)"
 # A fresh Django secret for the deployed app; keep an existing one if already set.
