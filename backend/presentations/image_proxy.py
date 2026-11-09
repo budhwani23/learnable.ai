@@ -8,8 +8,11 @@ its "openai_compatible" image provider at this endpoint:
     Authorization: Bearer <PRESENTON_IMAGE_PROXY_KEY>
     {"model": "...", "prompt": "...", "n": 1, "size": "1024x1024"}
 
-and try each model in PRESENTATION_IMAGE_MODELS in order (default: the full
-gemini-3.1-flash-image first, gemini-3.1-flash-lite-image only if it fails).
+and try each model in PRESENTATION_IMAGE_MODELS in order. Default chain:
+  nvidia:flux-3-image-klein   NVIDIA API (build.nvidia.com), skipped without NVIDIA_API_KEY
+  gemini-3.1-flash-image      Gemini (needs a billed key; free tier has 0 image quota)
+  gemini-3.1-flash-lite-image
+  -> neutral placeholder so the deck still completes
 Response follows the OpenAI Images API shape: {"created", "data": [{"b64_json"}]}.
 """
 import base64
@@ -19,6 +22,7 @@ import os
 import time
 from typing import List, Optional
 
+import requests
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -29,7 +33,8 @@ from ninja.security import HttpBearer
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODELS = "gemini-3.1-flash-image,gemini-3.1-flash-lite-image"
+DEFAULT_MODELS = "nvidia:flux-3-image-klein,gemini-3.1-flash-image,gemini-3.1-flash-lite-image"
+NVIDIA_GENAI_URL = "https://ai.api.nvidia.com/v1/genai/black-forest-labs/{model}"
 GEMINI_RATIOS = ("1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9")
 
 
@@ -65,7 +70,45 @@ def _aspect_ratio(size: Optional[str]) -> Optional[str]:
     return min(GEMINI_RATIOS, key=lambda r: abs(float(r.split(":")[0]) / float(r.split(":")[1]) - target))
 
 
+def _nvidia_size(ratio: Optional[str]) -> tuple[int, int]:
+    """Width/height for FLUX: long edge 1024, both multiples of 64."""
+    w_r, h_r = (int(x) for x in (ratio or "1:1").split(":"))
+    if w_r >= h_r:
+        return 1024, max(64, round(1024 * h_r / w_r / 64) * 64)
+    return max(64, round(1024 * w_r / h_r / 64) * 64), 1024
+
+
+def _generate_nvidia(model: str, prompt: str, ratio: Optional[str]) -> bytes:
+    """Black Forest Labs FLUX via NVIDIA's hosted API (build.nvidia.com)."""
+    api_key = os.getenv("NVIDIA_API_KEY")
+    if not api_key:
+        raise ValueError("NVIDIA_API_KEY is not set")
+    width, height = _nvidia_size(ratio)
+    resp = requests.post(
+        NVIDIA_GENAI_URL.format(model=model),
+        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+        json={"prompt": prompt[:2000], "width": width, "height": height, "seed": 0,
+              "steps": int(os.getenv("NVIDIA_FLUX_STEPS", "4"))},
+        timeout=int(os.getenv("NVIDIA_IMAGE_TIMEOUT", "120")),
+    )
+    if not resp.ok:
+        raise ValueError(f"NVIDIA {resp.status_code}: {resp.text[:300]}")
+    data = resp.json()
+    # NVIDIA genai image responses: {"artifacts": [{"base64": ..., "finishReason": ...}]}
+    for art in data.get("artifacts") or []:
+        if art.get("base64"):
+            if (art.get("finishReason") or "SUCCESS").upper() not in ("SUCCESS", "STOP"):
+                raise ValueError(f"NVIDIA finishReason={art.get('finishReason')}")
+            return base64.b64decode(art["base64"])
+    for key in ("image", "b64_json"):
+        if data.get(key):
+            return base64.b64decode(data[key])
+    raise ValueError(f"NVIDIA returned no image (keys: {sorted(data)[:8]})")
+
+
 def _generate_with(client: genai.Client, model: str, prompt: str, ratio: Optional[str]) -> bytes:
+    if model.startswith("nvidia:"):
+        return _generate_nvidia(model.split(":", 1)[1], prompt, ratio)
     cfg = {"response_modalities": ["IMAGE"]}
     if ratio:
         cfg["image_config"] = types.ImageConfig(aspect_ratio=ratio)
