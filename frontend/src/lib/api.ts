@@ -471,7 +471,7 @@ class ApiClient {
   }
 
   // =====================
-  // AI explainer video (AUTH) — long-running background job
+  // AI explainer video (AUTH) â€” long-running background job
   // =====================
   async startExplainerVideo(
     audioFile?: File,
