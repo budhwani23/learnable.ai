@@ -112,6 +112,36 @@ export interface FlashcardOutput {
   content_type?: string;
 }
 
+// Explainer Video Types
+export type ExplainerJobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
+
+export interface ExplainerTranscriptBeat {
+  id: number;
+  narration: string;
+}
+
+export interface ExplainerJob {
+  id: string;
+  status: ExplainerJobStatus;
+  stage: string;
+  progress: number;
+  message: string;
+  error?: string | null;
+  title?: string | null;
+  transcript: ExplainerTranscriptBeat[];
+  source_type: string;
+  source_label: string;
+  focus?: string | null;
+  created_at: number;
+  updated_at: number;
+  has_video: boolean;
+}
+
+export interface ExplainerJobResponse {
+  success: boolean;
+  job: ExplainerJob;
+}
+
 // Processing State Types
 export type ProcessingState = 'idle' | 'uploading' | 'processing' | 'success' | 'error';
 

@@ -429,3 +429,5 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+# Generated explainer videos / uploads
+backend/media/

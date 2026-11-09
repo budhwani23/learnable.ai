@@ -49,6 +49,7 @@ export const API_ENDPOINTS = {
   GENERATE_MCQ_QUIZ_MULTIMEDIA: '/learning/generate-mcq-quiz-multimedia',
   GENERATE_FLASHCARDS: '/learning/generate-flashcards',
   GENERATE_FLASHCARDS_MULTIMEDIA: '/learning/generate-flashcards-multimedia',
+  EXPLAINER_JOBS: '/explainer/jobs',
   HEALTH_CHECK: '/learning/hello',
   AUTH_LOGIN: '/users/auth/login',
   AUTH_REGISTER: '/users/auth/register',

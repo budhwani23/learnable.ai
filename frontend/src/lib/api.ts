@@ -15,6 +15,8 @@ import type {
   FlashcardInput,
   FlashcardMultimediaInput,
   FlashcardOutput,
+  ExplainerJob,
+  ExplainerJobResponse,
   ApiError
 } from './types';
 
@@ -466,6 +468,56 @@ class ApiClient {
       onProgress,
       true
     );
+  }
+
+  // =====================
+  // AI explainer video (AUTH) — long-running background job
+  // =====================
+  async startExplainerVideo(
+    audioFile?: File,
+    videoFile?: File,
+    documentFile?: File,
+    text?: string,
+    focus?: string,
+    onProgress?: (progress: number) => void
+  ): Promise<ExplainerJob> {
+    const formData = new FormData();
+    formData.append('data', JSON.stringify({
+      ...(text && text.trim() ? { text } : {}),
+      ...(focus && focus.trim() ? { focus } : {}),
+    }));
+    if (audioFile) formData.append('audio_file', audioFile);
+    if (videoFile) formData.append('video_file', videoFile);
+    if (documentFile) formData.append('document_file', documentFile);
+
+    const res = await this.makeFileRequest<ExplainerJobResponse>(
+      API_ENDPOINTS.EXPLAINER_JOBS,
+      formData,
+      onProgress,
+      true
+    );
+    return res.job;
+  }
+
+  async getExplainerJob(jobId: string): Promise<ExplainerJob> {
+    const res = await this.makeRequest<ExplainerJobResponse>(
+      `${API_ENDPOINTS.EXPLAINER_JOBS}/${encodeURIComponent(jobId)}`,
+      { method: 'GET' },
+      true
+    );
+    return res.job;
+  }
+
+  // Fetch the finished MP4 with auth and return it as a Blob (a <video> tag
+  // can't send the Authorization header itself).
+  async fetchExplainerVideo(jobId: string): Promise<Blob> {
+    const url = `${this.baseUrl}${API_ENDPOINTS.EXPLAINER_JOBS}/${encodeURIComponent(jobId)}/video`;
+    let res = await fetch(url, { headers: this.buildAuthHeaders() });
+    if (res.status === 401 && (await this.refreshTokensOnce())) {
+      res = await fetch(url, { headers: this.buildAuthHeaders() });
+    }
+    if (!res.ok) throw new Error(`Could not load the video (status ${res.status})`);
+    return res.blob();
   }
 
   // Process all types (summary, mindmap, quiz, flashcards) from multimedia
