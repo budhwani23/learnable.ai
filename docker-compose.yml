@@ -27,14 +27,14 @@ services:
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:?set GOOGLE_API_KEY in backend/.env}
       GOOGLE_MODEL: ${PRESENTON_GOOGLE_MODEL:-models/gemini-3.5-flash-lite}
       # Slide images go through the backend's /image-proxy endpoint, which generates
-      # them on Amazon Bedrock (BEDROCK_IMAGE_MODEL, default Stable Image Core).
+      # them with FLUX Klein on NVIDIA's API (NVIDIA_API_KEY in backend/.env).
       IMAGE_PROVIDER: ${PRESENTON_IMAGE_PROVIDER:-openai_compatible}
       OPENAI_COMPAT_IMAGE_BASE_URL: ${PRESENTON_IMAGE_BASE_URL:-http://host.docker.internal:8000/api/presentations/image-proxy/v1}
       OPENAI_COMPAT_IMAGE_API_KEY: ${PRESENTON_IMAGE_PROXY_KEY:?set PRESENTON_IMAGE_PROXY_KEY in backend/.env}
-      OPENAI_COMPAT_IMAGE_MODEL: bedrock
+      OPENAI_COMPAT_IMAGE_MODEL: nvidia-flux
       PRESENTON_PUBLIC_URL: http://localhost:5001
       # Keep student content private: don't publish decks to Presenton's community gallery.
       PRESENTON_COMMUNITY_ENABLED: "false"
       DISABLE_AUTH: ${PRESENTON_DISABLE_AUTH:-true}
-      # Set PRESENTON_DISABLE_IMAGES=true to use placeholders (saves Bedrock spend).
+      # Set PRESENTON_DISABLE_IMAGES=true to use placeholders (saves NVIDIA API credits).
       DISABLE_IMAGE_GENERATION: ${PRESENTON_DISABLE_IMAGES:-false}

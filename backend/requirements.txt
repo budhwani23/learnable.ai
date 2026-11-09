@@ -1,7 +1,6 @@
 annotated-types==0.7.0
 anyio==4.9.0
 asgiref==3.9.1
-boto3[crt]>=1.43,<2
 cachetools==5.5.2
 certifi==2025.7.14
 charset-normalizer==3.4.2

@@ -1,29 +1,41 @@
 import base64
-import io
 import json
 from unittest import mock
 
 from django.test import Client, SimpleTestCase
 
-from core import bedrock_images
-from core.bedrock_images import BedrockImageService, aspect_ratio_for_size
+from core import nvidia_images
+from core.nvidia_images import NvidiaImageService, aspect_ratio_for_size, dimensions_for_ratio
 
-PNG = b"\x89PNG\r\n\x1a\nfake"
+JPEG = b"\xff\xd8\xff\xe0fake-jpeg"
 URL = "/api/presentations/image-proxy/v1/images/generations"
 
 
-class FakeBedrock:
-    def __init__(self, payload):
-        self.payload = payload
+class FakeResponse:
+    def __init__(self, payload, status=200):
+        self._payload = payload
+        self.status_code = status
+        self.ok = status < 400
+        self.text = json.dumps(payload)
+
+    def json(self):
+        return self._payload
+
+
+class FakeNvidia:
+    """Stands in for `requests`: records POSTs and returns a canned response."""
+
+    def __init__(self, payload, status=200):
+        self.payload, self.status = payload, status
         self.calls = []
 
-    def invoke_model(self, **kwargs):
-        self.calls.append(kwargs)
-        return {"body": io.BytesIO(json.dumps(self.payload).encode())}
+    def post(self, url, **kwargs):
+        self.calls.append({"url": url, **kwargs})
+        return FakeResponse(self.payload, self.status)
 
 
 def ok_payload():
-    return {"images": [base64.b64encode(PNG).decode()], "finish_reasons": [None], "seeds": [1]}
+    return {"artifacts": [{"base64": base64.b64encode(JPEG).decode(), "finishReason": "SUCCESS", "seed": 0}]}
 
 
 class AspectRatioTests(SimpleTestCase):
@@ -35,31 +47,52 @@ class AspectRatioTests(SimpleTestCase):
         self.assertEqual(aspect_ratio_for_size(None), "1:1")
         self.assertEqual(aspect_ratio_for_size("bogus"), "1:1")
 
+    def test_dimensions_are_multiples_of_64(self):
+        self.assertEqual(dimensions_for_ratio("1:1"), (1024, 1024))
+        self.assertEqual(dimensions_for_ratio("16:9"), (1024, 576))
+        self.assertEqual(dimensions_for_ratio("2:3"), (704, 1024))
+        for ratio in ("21:9", "4:5", "9:16"):
+            w, h = dimensions_for_ratio(ratio)
+            self.assertEqual((w % 64, h % 64), (0, 0))
+
 
 class ServiceTests(SimpleTestCase):
     def test_request_body_and_decode(self):
-        fake = FakeBedrock(ok_payload())
-        svc = BedrockImageService(model_id="stability.stable-image-core-v1:1", client=fake)
+        fake = FakeNvidia(ok_payload())
+        svc = NvidiaImageService(model_id="flux-3-image-klein", api_key="nvapi-test", session=fake)
         img = svc.generate("an owl", size="1920x1080")
-        self.assertEqual(img.data, PNG)
+        self.assertEqual(img.data, JPEG)
+        self.assertEqual(img.mime_type, "image/jpeg")
         call = fake.calls[0]
-        self.assertEqual(call["modelId"], "stability.stable-image-core-v1:1")
-        self.assertEqual(json.loads(call["body"]),
-                         {"prompt": "an owl", "aspect_ratio": "16:9", "output_format": "png"})
+        self.assertEqual(call["url"], "https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux-3-image-klein")
+        self.assertEqual(call["headers"]["Authorization"], "Bearer nvapi-test")
+        self.assertEqual(call["json"], {"prompt": "an owl", "width": 1024, "height": 576, "seed": 0,
+                                        "steps": svc.steps})
 
     def test_content_filter(self):
-        fake = FakeBedrock({"images": [], "finish_reasons": ["Filter reason: prompt"]})
-        svc = BedrockImageService(client=fake)
-        with self.assertRaises(bedrock_images.ImageFilteredError):
+        fake = FakeNvidia({"artifacts": [{"base64": "", "finishReason": "CONTENT_FILTERED"}]})
+        svc = NvidiaImageService(api_key="nvapi-test", session=fake)
+        with self.assertRaises(nvidia_images.ImageFilteredError):
             svc.generate("x")
+
+    def test_http_error(self):
+        svc = NvidiaImageService(api_key="nvapi-test", session=FakeNvidia({"detail": "Unauthorized"}, status=401))
+        with self.assertRaises(nvidia_images.ImageGenerationError):
+            svc.generate("x")
+
+    def test_missing_key_never_calls_api(self):
+        fake = FakeNvidia(ok_payload())
+        with self.assertRaises(nvidia_images.ImageGenerationError):
+            NvidiaImageService(api_key="", session=fake).generate("x")
+        self.assertEqual(fake.calls, [])
 
 
 @mock.patch.dict("os.environ", {"PRESENTON_IMAGE_PROXY_KEY": "secret"})
 class EndpointTests(SimpleTestCase):
     def setUp(self):
-        self.fake = FakeBedrock(ok_payload())
+        self.fake = FakeNvidia(ok_payload())
         patcher = mock.patch("presentations.image_proxy.get_image_service",
-                             return_value=BedrockImageService(client=self.fake))
+                             return_value=NvidiaImageService(api_key="nvapi-test", session=self.fake))
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -68,24 +101,30 @@ class EndpointTests(SimpleTestCase):
                              HTTP_AUTHORIZATION=f"Bearer {key}")
 
     def test_openai_shape(self):
-        r = self.post({"model": "bedrock", "prompt": "an owl", "n": 1, "size": "1024x1024"})
+        r = self.post({"model": "nvidia", "prompt": "an owl", "n": 1, "size": "1024x1024"})
         self.assertEqual(r.status_code, 200, r.content)
-        self.assertEqual(base64.b64decode(r.json()["data"][0]["b64_json"]), PNG)
+        self.assertEqual(base64.b64decode(r.json()["data"][0]["b64_json"]), JPEG)
 
     def test_rejects_bad_key(self):
         self.assertEqual(self.post({"prompt": "x"}, key="wrong").status_code, 401)
         self.assertEqual(self.fake.calls, [])
 
     def test_filtered_falls_back_to_placeholder(self):
-        self.fake.payload = {"images": [], "finish_reasons": ["Filter reason: output"]}
+        self.fake.payload = {"artifacts": [{"base64": "", "finishReason": "CONTENT_FILTERED"}]}
         r = self.post({"prompt": "x", "size": "1536x1024"})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["model"], "placeholder")
         self.assertTrue(base64.b64decode(r.json()["data"][0]["b64_json"]).startswith(b"\x89PNG"))
 
+    def test_upstream_error_falls_back_to_placeholder(self):
+        self.fake.status, self.fake.payload = 503, {"detail": "busy"}
+        r = self.post({"prompt": "x"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["model"], "placeholder")
+
     @mock.patch.dict("os.environ", {"PRESENTATION_IMAGE_PLACEHOLDER": "false"})
     def test_filtered_is_400_without_placeholder(self):
-        self.fake.payload = {"images": [], "finish_reasons": ["Filter reason: output"]}
+        self.fake.payload = {"artifacts": [{"base64": "", "finishReason": "CONTENT_FILTERED"}]}
         r = self.post({"prompt": "x"})
         self.assertEqual(r.status_code, 400)
         self.assertEqual(r.json()["error"]["type"], "content_policy_violation")

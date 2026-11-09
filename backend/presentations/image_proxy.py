@@ -1,5 +1,5 @@
 """
-OpenAI-compatible image endpoint for Presenton slide images, backed by Amazon Bedrock.
+OpenAI-compatible image endpoint for Presenton slide images, backed by NVIDIA FLUX.
 
 Presenton (IMAGE_PROVIDER=openai_compatible) calls
 
@@ -7,8 +7,8 @@ Presenton (IMAGE_PROVIDER=openai_compatible) calls
     Authorization: Bearer <PRESENTON_IMAGE_PROXY_KEY>
     {"model": "...", "prompt": "...", "n": 1, "size": "1024x1024"}
 
-and reads data[0].b64_json. Images come from BEDROCK_IMAGE_MODEL (default Stability
-Stable Image Core, see core/bedrock_images.py). Presenton fails the whole deck when one
+and reads data[0].b64_json. Images come from FLUX Klein on NVIDIA's hosted API
+(NVIDIA_API_KEY, see core/nvidia_images.py). Presenton fails the whole deck when one
 image errors, so a failed or content-filtered image falls back to a neutral placeholder
 (PRESENTATION_IMAGE_PLACEHOLDER=false turns that off).
 """
@@ -19,12 +19,11 @@ import os
 import time
 from typing import Optional
 
-from botocore.exceptions import BotoCoreError, ClientError
 from ninja import Schema
 from ninja.router import Router
 from ninja.security import HttpBearer
 
-from core.bedrock_images import ImageFilteredError, ImageGenerationError, aspect_ratio_for_size, get_image_service
+from core.nvidia_images import ImageFilteredError, ImageGenerationError, aspect_ratio_for_size, get_image_service
 
 logger = logging.getLogger(__name__)
 
@@ -66,8 +65,9 @@ def generate_image(request, body: ImageRequest):
         for _ in range(n):
             image = service.generate(body.prompt, size=body.size)
             items.append({"b64_json": base64.b64encode(image.data).decode("ascii")})
+        logger.info("Slide image generated with nvidia:%s", service.model_id)
         return {"created": int(time.time()), "model": service.model_id, "data": items}
-    except (ImageFilteredError, ImageGenerationError, ClientError, BotoCoreError) as exc:
+    except (ImageFilteredError, ImageGenerationError) as exc:
         filtered = isinstance(exc, ImageFilteredError)
         if _placeholders_enabled():
             logger.warning("Slide image failed (model=%s); using placeholder: %s", service.model_id, str(exc)[:300])
@@ -75,7 +75,7 @@ def generate_image(request, body: ImageRequest):
             return {"created": int(time.time()), "model": "placeholder", "data": [{"b64_json": png}] * n}
         if filtered:
             return _error(request, 400, str(exc), "content_policy_violation")
-        logger.exception("Bedrock image generation failed (model=%s)", service.model_id)
+        logger.exception("NVIDIA image generation failed (model=%s)", service.model_id)
         return _error(request, 502, f"Image generation failed: {exc}", "upstream_error")
 
 
