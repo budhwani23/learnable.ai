@@ -23,15 +23,26 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
 
+def _env_list(name: str, default: str = "") -> list:
+    return [v.strip() for v in os.getenv(name, default).split(",") if v.strip()]
+
+
+# Local development runs with DEBUG on; the Docker image sets DJANGO_DEBUG=false.
+DEBUG = os.getenv('DJANGO_DEBUG', 'true').lower() in ('1', 'true', 'yes')
+
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-bwo-a_=+mg1em-mg2^5*_5vi1d++$b)^@!7m#xf@b-0^yxh6n('
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', '')
+if not SECRET_KEY:
+    if not DEBUG:
+        raise RuntimeError('DJANGO_SECRET_KEY must be set when DJANGO_DEBUG is false')
+    SECRET_KEY = 'django-insecure-local-development-only'
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
-
-ALLOWED_HOSTS = ['localhost', '127.0.0.1'] + [
-    h.strip() for h in os.getenv('EXTRA_ALLOWED_HOSTS', '').split(',') if h.strip()
-]  # add a tunnel / production host for LMS launches via EXTRA_ALLOWED_HOSTS
+# Comma-separated. The dev default also allows host.docker.internal so the Presenton
+# container can call the backend's image endpoint. EXTRA_ALLOWED_HOSTS adds tunnel /
+# production hosts (e.g. for LMS launches) on top.
+ALLOWED_HOSTS = _env_list(
+    "DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,[::1],host.docker.internal"
+) + _env_list("EXTRA_ALLOWED_HOSTS")
 
 
 # Application definition
@@ -55,6 +66,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # static files + built frontend in production
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -97,8 +109,16 @@ DATABASES = {
         'PASSWORD': os.getenv('DB_PASSWORD', ''),
         'HOST': os.getenv('DB_HOST', 'localhost'),
         'PORT': os.getenv('DB_PORT', '5432'),
+        'CONN_MAX_AGE': int(os.getenv('DB_CONN_MAX_AGE', '60')),
+        # Managed databases (Supabase / RDS) should use DB_SSLMODE=require.
+        'OPTIONS': {'sslmode': os.getenv('DB_SSLMODE')} if os.getenv('DB_SSLMODE') else {},
     }
 }
+# Supabase's transaction pooler (port 6543, PgBouncer transaction mode) hands each
+# transaction to any server connection: no persistent connections, no server-side cursors.
+if DATABASES['default']['PORT'] == '6543' or os.getenv('DB_TRANSACTION_POOLER', '').lower() in ('1', 'true', 'yes'):
+    DATABASES['default']['CONN_MAX_AGE'] = 0
+    DATABASES['default']['DISABLE_SERVER_SIDE_CURSORS'] = True
 
 
 # Password validation
@@ -136,6 +156,17 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.0/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STORAGES = {
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+                    if not DEBUG else 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+}
+
+# Built React app (frontend/dist) served by Django in the single production container.
+# WhiteNoise serves its files at the site root; api/urls.py returns index.html for SPA routes.
+FRONTEND_DIST = Path(os.getenv('FRONTEND_DIST', BASE_DIR.parent / 'frontend' / 'dist'))
+WHITENOISE_ROOT = FRONTEND_DIST if FRONTEND_DIST.exists() else None
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
@@ -148,7 +179,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:8080",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-]
+] + _env_list("CORS_EXTRA_ORIGINS")  # e.g. a second local frontend port
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -190,6 +221,7 @@ MEDIA_ROOT = BASE_DIR / 'media'
 TEMP_DIR = BASE_DIR / 'temp'
 
 # Logging Configuration
+(BASE_DIR / 'logs').mkdir(exist_ok=True)
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -276,3 +308,13 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 CSRF_TRUSTED_ORIGINS = [o.strip() for o in os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',') if o.strip()]
 # OAuth client id (web) used to verify Google Sign-In ID tokens for shared links.
 GOOGLE_OAUTH_CLIENT_ID = os.getenv('GOOGLE_OAUTH_CLIENT_ID', '')
+
+# =========================
+# Production hardening (HTTPS is terminated by the hosting load balancer)
+# =========================
+if not DEBUG:
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
+    SECURE_HSTS_SECONDS = int(os.getenv('SECURE_HSTS_SECONDS', 60 * 60 * 24 * 30))
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True

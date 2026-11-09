@@ -7,6 +7,7 @@ from explainer.api import router as explainer_router
 from library.api import router as library_router
 from lti.api import router as lti_router
 from presentations.api import router as presentations_router
+from presentations.image_proxy import router as presentations_image_router
 api = NinjaAPI(title="Learnable AI")
 
 api.add_router("/learning", learning_router, tags=["Learning"])
@@ -16,3 +17,5 @@ api.add_router("/explainer", explainer_router, tags=["Explainer Video"])
 api.add_router("/library", library_router, tags=["Library"])
 api.add_router("/lti", lti_router, tags=["LMS (LTI 1.3)"])
 api.add_router("/presentations", presentations_router, tags=["Presentations"])
+# Called by the Presenton container (Bearer PRESENTON_IMAGE_PROXY_KEY), not by browsers.
+api.add_router("/presentations/image-proxy", presentations_image_router, tags=["Presentations"])

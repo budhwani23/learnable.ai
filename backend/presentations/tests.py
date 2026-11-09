@@ -58,7 +58,7 @@ class ServiceTests(SimpleTestCase):
 class EndpointTests(SimpleTestCase):
     def setUp(self):
         self.fake = FakeBedrock(ok_payload())
-        patcher = mock.patch("presentations.api.get_image_service",
+        patcher = mock.patch("presentations.image_proxy.get_image_service",
                              return_value=BedrockImageService(client=self.fake))
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -76,7 +76,15 @@ class EndpointTests(SimpleTestCase):
         self.assertEqual(self.post({"prompt": "x"}, key="wrong").status_code, 401)
         self.assertEqual(self.fake.calls, [])
 
-    def test_filtered_is_400(self):
+    def test_filtered_falls_back_to_placeholder(self):
+        self.fake.payload = {"images": [], "finish_reasons": ["Filter reason: output"]}
+        r = self.post({"prompt": "x", "size": "1536x1024"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["model"], "placeholder")
+        self.assertTrue(base64.b64decode(r.json()["data"][0]["b64_json"]).startswith(b"\x89PNG"))
+
+    @mock.patch.dict("os.environ", {"PRESENTATION_IMAGE_PLACEHOLDER": "false"})
+    def test_filtered_is_400_without_placeholder(self):
         self.fake.payload = {"images": [], "finish_reasons": ["Filter reason: output"]}
         r = self.post({"prompt": "x"})
         self.assertEqual(r.status_code, 400)
