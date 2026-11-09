@@ -25,8 +25,24 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PORT=8000
 
 WORKDIR /app/backend
-COPY backend/requirements.txt ./
-RUN pip install -r requirements.txt
+
+# Explainer videos: manim needs Cairo/Pango, ffmpeg for media, and a compact LaTeX for
+# MathTex. Build headers are removed in the same layer once the Python wheels are built.
+COPY backend/requirements.txt backend/requirements-video.txt ./
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      ffmpeg libcairo2 libpango-1.0-0 libpangocairo-1.0-0 \
+      texlive-latex-base texlive-latex-extra texlive-fonts-recommended texlive-science dvisvgm \
+      build-essential pkg-config libcairo2-dev libpango1.0-dev \
+ && pip install -r requirements.txt -r requirements-video.txt \
+ && apt-get purge -y build-essential pkg-config libcairo2-dev libpango1.0-dev \
+ && apt-get autoremove -y \
+ && rm -rf /var/lib/apt/lists/* /usr/share/doc/* /usr/share/man/*
+
+# Cloud defaults: 720p final render, 480p quality-check previews (override per environment).
+ENV EXPLAINER_FINAL_QUALITY=-qm \
+    EXPLAINER_PREVIEW_QUALITY=-ql \
+    EXPLAINER_MAX_CONCURRENT=1
 
 COPY backend/ ./
 COPY --from=frontend /src/frontend/dist /app/frontend/dist

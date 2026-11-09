@@ -53,7 +53,7 @@ ENABLE_VISUAL_QA = os.getenv("EXPLAINER_VISUAL_QA", "true").lower() in ("1", "tr
 NARR_BUFFER = 0.4
 RENDER_TIMEOUT = int(os.getenv("EXPLAINER_RENDER_TIMEOUT", "1200"))  # seconds per render
 
-PREVIEW_FLAGS = ["-qm"]                                           # 720p30
+PREVIEW_FLAGS = [os.getenv("EXPLAINER_PREVIEW_QUALITY", "-qm")]   # 720p30 by default
 FINAL_FLAGS = [os.getenv("EXPLAINER_FINAL_QUALITY", "-qh")]       # 1080p60 by default
 
 MIN_FREEZE = 1.2
