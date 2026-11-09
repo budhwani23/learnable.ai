@@ -9,6 +9,7 @@ API used (from Presenton's FastAPI source):
 `path` is an absolute path inside the container (under /app_data), not a URL.
 """
 import os
+import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -18,6 +19,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 GENERATE_TIMEOUT = int(os.getenv("PRESENTON_TIMEOUT", "900"))  # seconds; generation is slow
+RATE_LIMIT_RETRIES = int(os.getenv("PRESENTON_RATE_LIMIT_RETRIES", "3"))
+RATE_LIMIT_WAIT = int(os.getenv("PRESENTON_RATE_LIMIT_WAIT", "45"))  # seconds, grows per attempt
 
 TONES = ("default", "casual", "professional", "funny", "educational", "sales_pitch")
 VERBOSITIES = ("concise", "standard", "text-heavy")
@@ -55,13 +58,21 @@ def _raise_for(resp: requests.Response) -> None:
 
 
 def _post(path: str, payload: Dict[str, Any], timeout: int) -> Dict[str, Any]:
-    try:
-        resp = requests.post(f"{_base_url()}{path}", json=payload, headers=_headers(), timeout=timeout)
-    except requests.ConnectionError:
-        raise PresentonError("The presentation service is not running. Start it with "
-                             "`docker compose --env-file backend/.env up -d presenton`.")
-    except requests.Timeout:
-        raise PresentonError("The presentation service took too long to respond. Please try again.")
+    # Presenton surfaces the LLM provider's rate limits / overload as 429 or 503
+    # (e.g. Gemini free tier allows only a few requests per minute). Wait and retry.
+    for attempt in range(RATE_LIMIT_RETRIES + 1):
+        try:
+            resp = requests.post(f"{_base_url()}{path}", json=payload, headers=_headers(), timeout=timeout)
+        except requests.ConnectionError:
+            raise PresentonError("The presentation service is not running. Start it with "
+                                 "`docker compose --env-file backend/.env up -d presenton`.")
+        except requests.Timeout:
+            raise PresentonError("The presentation service took too long to respond. Please try again.")
+        if resp.status_code not in (429, 503) or attempt == RATE_LIMIT_RETRIES:
+            break
+        time.sleep(RATE_LIMIT_WAIT * (attempt + 1))
+    if resp.status_code in (429, 503):
+        raise PresentonError("The AI service is busy or rate-limited right now. Please try again in a few minutes.")
     _raise_for(resp)
     return resp.json()
 

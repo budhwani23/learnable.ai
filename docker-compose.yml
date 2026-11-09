@@ -28,3 +28,5 @@ services:
       # Keep student content private: don't publish decks to Presenton's community gallery.
       PRESENTON_COMMUNITY_ENABLED: "false"
       DISABLE_AUTH: ${PRESENTON_DISABLE_AUTH:-true}
+      # Image generation uses the same Gemini key; on the free tier it burns the per-minute quota.
+      DISABLE_IMAGE_GENERATION: ${PRESENTON_DISABLE_IMAGES:-false}
