@@ -63,3 +63,52 @@ class GeminiService:
             func=self.run_raw,
             description=description
         )
+
+
+CEREBRAS_BASE_URL = "https://api.cerebras.ai/v1"
+DEFAULT_CEREBRAS_MODEL = "qwen-3.8-27b"
+
+
+class CerebrasService(GeminiService):
+    """
+    Text-only LLM on Cerebras (OpenAI-compatible API), e.g. qwen-3.8-27b.
+
+    Same interface as GeminiService (run_prompt / run_raw / run_raw_with_usage / .llm),
+    so text generation can switch providers without touching callers. It cannot read
+    audio, video, images, PDFs or URLs: keep those on GeminiService.
+    """
+
+    def __init__(self, model_name: str | None = None, temperature: float = 0.7):
+        from langchain_openai import ChatOpenAI  # imported lazily: only needed with a Cerebras key
+
+        api_key = os.getenv("CEREBRAS_API_KEY")
+        if not api_key:
+            raise ValueError("Missing CEREBRAS_API_KEY in environment")
+        self.model_name = model_name or os.getenv("CEREBRAS_MODEL", DEFAULT_CEREBRAS_MODEL)
+        self.llm: BaseChatModel = ChatOpenAI(
+            model=self.model_name,
+            api_key=api_key,
+            base_url=os.getenv("CEREBRAS_BASE_URL", CEREBRAS_BASE_URL),
+            temperature=temperature,
+            # Reasoning model: leave room for its hidden reasoning plus the answer.
+            max_completion_tokens=int(os.getenv("CEREBRAS_MAX_TOKENS", "16000")),
+            timeout=int(os.getenv("CEREBRAS_TIMEOUT", "120")),
+            max_retries=4,  # retries 429/5xx with backoff
+        )
+        self.parser = StrOutputParser()
+
+    def run_prompt(self, system_prompt: str, user_input: str) -> str:
+        return super().run_prompt(system_prompt, user_input).strip()
+
+    def run_raw(self, prompt_text: str) -> str:
+        return (super().run_raw(prompt_text) or "").strip()
+
+
+def get_text_service(temperature: float = 0.7) -> GeminiService:
+    """
+    The LLM for plain-text generation (summaries, mindmaps, quizzes, flashcards,
+    explainer scripts): Cerebras when CEREBRAS_API_KEY is set, otherwise Gemini.
+    """
+    if os.getenv("CEREBRAS_API_KEY"):
+        return CerebrasService(temperature=temperature)
+    return GeminiService(model_name="gemini-3-flash-preview", temperature=temperature)

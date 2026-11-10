@@ -28,8 +28,9 @@ httpx==0.28.1
 idna==3.10
 jsonpatch==1.33
 jsonpointer==3.0.0
-langchain-core==0.3.72
+langchain-core==0.3.86
 langchain-google-genai==2.0.10
+langchain-openai>=0.3.28,<0.4
 langsmith==0.4.8
 lxml==6.0.0
 orjson==3.11.1

@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 # Core imports
 from users.security import JWTAuth
-from core.gemini import GeminiService
+from core.gemini import GeminiService, get_text_service
 
 # Service imports
 from .learning_service import LearningService
@@ -32,9 +32,12 @@ load_dotenv()
 router = Router(auth=JWTAuth())
 
 # Initialize services
+# Gemini handles audio/video/PDF/URL input; plain-text generation uses get_text_service()
+# (Cerebras qwen when CEREBRAS_API_KEY is set, otherwise Gemini).
 gemini_service = GeminiService(model_name="gemini-3-flash-preview", temperature=0.7)
-media_processor = MediaProcessor(gemini_service)
-learning_service = LearningService(gemini_service)
+text_service = get_text_service()
+media_processor = MediaProcessor(gemini_service, text_service)
+learning_service = LearningService(gemini_service, text_service)
 
 
 @router.get("/hello", response=SuccessResponse)
@@ -131,7 +134,7 @@ def summarize_text(request, data: SummarizeTextInput):
     Summarize text using Gemini API (legacy endpoint)
     """
     try:
-        summary = gemini_service.run_prompt(TEXT_SUMMARIZATION_PROMPT, data.text)
+        summary = text_service.run_prompt(TEXT_SUMMARIZATION_PROMPT, data.text)
         
         return SummarizeTextOutput(
             success=True,

@@ -14,7 +14,7 @@ from ninja.files import UploadedFile
 from constants import (
     ALLOWED_AUDIO_EXTENSIONS, ALLOWED_DOCUMENT_EXTENSIONS, ALLOWED_VIDEO_EXTENSIONS,
 )
-from core.gemini import GeminiService
+from core.gemini import GeminiService, get_text_service
 from learning.learning_service import LearningService
 from utils.media_processor import MediaProcessor
 from utils.youtube import get_youtube_transcript, is_youtube_url
@@ -81,7 +81,8 @@ def _services():
     global _gemini
     if _gemini is None:
         _gemini = GeminiService(model_name="gemini-3-flash-preview", temperature=0.7)
-    return MediaProcessor(_gemini), LearningService(_gemini)
+    text = get_text_service()
+    return MediaProcessor(_gemini, text), LearningService(_gemini, text)
 
 
 def extract_source_text(job: Dict[str, Any]) -> str:
