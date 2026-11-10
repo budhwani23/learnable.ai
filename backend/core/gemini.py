@@ -8,6 +8,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.output_parsers import StrOutputParser
 from dotenv import load_dotenv
+from core.cerebras import CEREBRAS_BASE_URL, DEFAULT_CEREBRAS_MODEL, USER_AGENT as CEREBRAS_USER_AGENT
 load_dotenv()
 
 
@@ -65,17 +66,13 @@ class GeminiService:
         )
 
 
-CEREBRAS_BASE_URL = "https://api.cerebras.ai/v1"
-DEFAULT_CEREBRAS_MODEL = "qwen-3.8-27b"
-
-
 class CerebrasService(GeminiService):
     """
     Text-only LLM on Cerebras (OpenAI-compatible API), e.g. qwen-3.8-27b.
 
     Same interface as GeminiService (run_prompt / run_raw / run_raw_with_usage / .llm),
-    so text generation can switch providers without touching callers. It cannot read
-    audio, video, images, PDFs or URLs: keep those on GeminiService.
+    so text generation can switch providers without touching callers. It reads images
+    (see core.cerebras), but not audio, video, PDF files or URLs: keep those on GeminiService.
     """
 
     def __init__(self, model_name: str | None = None, temperature: float = 0.7):
@@ -94,6 +91,8 @@ class CerebrasService(GeminiService):
             max_completion_tokens=int(os.getenv("CEREBRAS_MAX_TOKENS", "16000")),
             timeout=int(os.getenv("CEREBRAS_TIMEOUT", "120")),
             max_retries=4,  # retries 429/5xx with backoff
+            # Cloudflare in front of Cerebras rejects some clients without a User-Agent.
+            default_headers={"User-Agent": CEREBRAS_USER_AGENT},
         )
         self.parser = StrOutputParser()
 

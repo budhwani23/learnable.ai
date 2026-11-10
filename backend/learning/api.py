@@ -66,15 +66,15 @@ def summarize_content(
         # Handle text or YouTube URL input
         if data and data.text:
             if is_youtube_url(data.text):
-                # New behavior: Summarize directly from URL via Gemini
+                # Transcript -> text model; Gemini watches the video if there is no transcript
                 content_type = "youtube"
                 original_text = data.text
                 url_result = learning_service.summarize_from_url(data.text)
                 if not url_result.get("success"):
                     return {"error": url_result.get("error", "Failed to summarize from URL")}
                 summary = url_result.get("summary", "")
-                # We cannot compute word_count_original without transcript; set to 0 or omit
-                word_count_original = 0
+                # Word count of the transcript when one was fetched (0 if Gemini watched the video).
+                word_count_original = len((url_result.get("transcript") or "").split())
             else:
                 content_type = "text"
                 original_text = data.text

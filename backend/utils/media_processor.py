@@ -2,12 +2,15 @@
 Media processing utilities for audio and video transcription and summarization.
 """
 import os
+import io
 import tempfile
 import base64
 import logging
-from typing import Tuple, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, List, Tuple, Optional
 from ninja.files import UploadedFile
 from langchain_core.messages import SystemMessage, HumanMessage
+from core import cerebras
 from core.gemini import GeminiService
 from constants import (
     ALLOWED_AUDIO_EXTENSIONS, ALLOWED_VIDEO_EXTENSIONS, ALLOWED_DOCUMENT_EXTENSIONS,
@@ -24,8 +27,8 @@ class MediaProcessor:
     """Handles media file processing including transcription and summarization."""
     
     def __init__(self, gemini_service: GeminiService, text_service: GeminiService | None = None):
-        # Gemini reads audio, video and image-only PDFs; summarising the resulting
-        # text can run on a text-only model (e.g. Cerebras) via text_service.
+        # Gemini reads audio and video (and image-only PDFs when Cerebras is not
+        # configured); text and scanned PDF pages go to Cerebras when it is.
         self.gemini_service = gemini_service
         self.text_service = text_service or gemini_service
     
@@ -215,23 +218,159 @@ class MediaProcessor:
 
     # Gemini's inline request limit is ~20MB; base64 inflates by ~4/3.
     MAX_INLINE_PDF_BYTES = 14 * 1024 * 1024
+    # Scanned pages read visually on Cerebras (qwen): cap the work per upload.
+    MAX_SCANNED_PDF_PAGES = int(os.getenv("PDF_VISION_MAX_PAGES", "40"))
+    PDF_VISION_BATCH = int(os.getenv("PDF_VISION_BATCH", "4"))           # pages per request
+    PDF_VISION_WORKERS = int(os.getenv("PDF_VISION_WORKERS", "3"))       # parallel requests
+    PDF_RENDER_MAX_SIDE = int(os.getenv("PDF_RENDER_MAX_SIDE", "1600"))  # px, longest side
+    # A page with less text than this is treated as an image (scan, slide, figure).
+    MIN_PAGE_TEXT_CHARS = 25
+
+    PDF_VISION_PROMPT = (
+        "These images are pages {pages} of a document that has no text layer (scanned pages "
+        "or slides saved as images). Read every page in order and transcribe all visible text "
+        "faithfully. For diagrams, charts, tables and figures, add a short factual description "
+        "of what they show. Output plain text only, with a '--- Page N ---' line before each "
+        "page, using the page numbers given above."
+    )
 
     def _extract_text_from_document(self, file_path: str, file_extension: str) -> str:
         """Extract text from PDF or Word document."""
         if file_extension == '.pdf':
-            with open(file_path, 'rb') as f:
-                reader = PyPDF2.PdfReader(f)
-                text = "\n".join(page.extract_text() or '' for page in reader.pages)
-            if not text.strip():
-                # Scanned / image-only PDF (e.g. exported slides): no text layer for
-                # PyPDF2, so let Gemini read the pages visually.
-                text = self._read_pdf_with_gemini(file_path)
-            return text
+            return self._extract_pdf_text(file_path)
         elif file_extension in ['.docx', '.doc']:
             doc = docx.Document(file_path)
             text = "\n".join([para.text for para in doc.paragraphs])
             return text
         return ""
+
+    def _extract_pdf_text(self, file_path: str) -> str:
+        """
+        Text from a PDF: the text layer where there is one, and the pages without
+        one (scans, slides exported as images) read visually by the vision model.
+        """
+        pages = self._pdf_text_layer(file_path)
+        image_pages = [i for i, t in enumerate(pages) if len(t.strip()) < self.MIN_PAGE_TEXT_CHARS]
+        if not image_pages:
+            return "\n".join(pages)
+
+        has_text = len(image_pages) < len(pages)
+        if not cerebras.is_configured():
+            if has_text:
+                return "\n".join(pages)
+            # No Cerebras key: Gemini reads the whole PDF natively.
+            return self._read_pdf_with_gemini(file_path)
+
+        if len(image_pages) > self.MAX_SCANNED_PDF_PAGES:
+            if has_text:
+                logger.warning("PDF has %s image-only pages (limit %s); using its text layer only",
+                               len(image_pages), self.MAX_SCANNED_PDF_PAGES)
+                return "\n".join(pages)
+            raise Exception(
+                f"This PDF has no selectable text (it looks scanned or image-based) and has "
+                f"{len(image_pages)} pages; we can read up to {self.MAX_SCANNED_PDF_PAGES} scanned "
+                "pages at a time. Split it into smaller PDFs or use one with selectable text."
+            )
+
+        transcribed = self._read_pdf_pages_with_vision(file_path, image_pages)
+        out = []
+        for i, text in enumerate(pages):
+            if i in transcribed:
+                out.append(transcribed[i])
+            elif i not in image_pages:
+                out.append(text)
+        return "\n".join(out)
+
+    def _pdf_text_layer(self, file_path: str) -> List[str]:
+        """Per-page text: PyPDF2 first, PDFium for pages PyPDF2 reads poorly."""
+        try:
+            with open(file_path, 'rb') as f:
+                pages = [page.extract_text() or '' for page in PyPDF2.PdfReader(f).pages]
+        except Exception as e:  # malformed for PyPDF2; PDFium is more forgiving
+            logger.info("PyPDF2 could not read the PDF (%s); trying PDFium", e)
+            pages = None
+
+        weak = None if pages is None else [
+            i for i, t in enumerate(pages) if len(t.strip()) < self.MIN_PAGE_TEXT_CHARS]
+        if pages is not None and not weak:
+            return pages
+        try:
+            import pypdfium2 as pdfium
+            pdf = pdfium.PdfDocument(file_path)
+            try:
+                if pages is None:
+                    pages = [''] * len(pdf)
+                    weak = list(range(len(pdf)))
+                for i in weak:
+                    text = pdf[i].get_textpage().get_text_range() or ''
+                    if len(text.strip()) > len(pages[i].strip()):
+                        pages[i] = text
+            finally:
+                pdf.close()
+        except Exception as e:
+            if pages is None:
+                raise Exception(f"Could not open this PDF: {e}")
+            logger.warning("PDFium text extraction failed: %s", e)
+        return pages
+
+    def _render_pdf_pages(self, pdf, indices: List[int]) -> List[bytes]:
+        """Render pages to JPEG, longest side at most PDF_RENDER_MAX_SIDE px."""
+        images = []
+        for i in indices:
+            page = pdf[i]
+            width, height = page.get_size()  # PDF points (1/72 inch)
+            scale = min(2.0, self.PDF_RENDER_MAX_SIDE / max(width, height, 1))
+            pil = page.render(scale=scale).to_pil().convert("RGB")
+            buf = io.BytesIO()
+            pil.save(buf, format="JPEG", quality=85)
+            images.append(buf.getvalue())
+        return images
+
+    def _read_pdf_pages_with_vision(self, file_path: str, indices: List[int]) -> Dict[int, str]:
+        """
+        Transcribe the given (0-based) pages with the Cerebras vision model, a few
+        pages per request. Returns {first page index of each batch: transcription}.
+        """
+        import pypdfium2 as pdfium
+
+        # Batches of consecutive pages, so each transcription slots back in order.
+        batches: List[List[int]] = []
+        for i in indices:
+            if batches and batches[-1][-1] == i - 1 and len(batches[-1]) < self.PDF_VISION_BATCH:
+                batches[-1].append(i)
+            else:
+                batches.append([i])
+
+        pdf = pdfium.PdfDocument(file_path)
+        try:
+            rendered = [self._render_pdf_pages(pdf, b) for b in batches]
+        finally:
+            pdf.close()
+        logger.info("Reading %s image-only PDF pages with Cerebras vision in %s requests",
+                    len(indices), len(batches))
+
+        def read(batch: List[int], images: List[bytes]) -> str:
+            numbers = ", ".join(str(i + 1) for i in batch)
+            prompt = self.PDF_VISION_PROMPT.format(pages=numbers)
+            content = cerebras.text_and_images(prompt, [(img, "image/jpeg") for img in images])
+            return cerebras.chat(content, system=TRANSCRIBER_SYSTEM_MESSAGE)
+
+        results: Dict[int, str] = {}
+        errors: List[str] = []
+        with ThreadPoolExecutor(max_workers=max(1, self.PDF_VISION_WORKERS)) as pool:
+            futures = {pool.submit(read, b, imgs): b for b, imgs in zip(batches, rendered)}
+            for future in as_completed(futures):
+                batch = futures[future]
+                try:
+                    results[batch[0]] = future.result()
+                except Exception as e:
+                    logger.error("Vision read of PDF pages %s failed: %s", batch, e)
+                    errors.append(str(e))
+                    label = f"{batch[0] + 1}-{batch[-1] + 1}" if len(batch) > 1 else str(batch[0] + 1)
+                    results[batch[0]] = f"[Page(s) {label} could not be read]"
+        if len(errors) == len(batches):
+            raise Exception(f"Could not read the scanned pages of this PDF: {errors[0]}")
+        return results
 
     def _read_pdf_with_gemini(self, file_path: str) -> str:
         """Transcribe an image-based PDF with Gemini's native PDF understanding."""

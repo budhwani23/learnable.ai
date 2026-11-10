@@ -95,9 +95,9 @@ def extract_source_text(job: Dict[str, Any]) -> str:
     elif source_type == "youtube":
         text, error = get_youtube_transcript(job["text"])
         if not text:
-            # No transcript available -> let Gemini read the video from its URL.
+            # No transcript available -> Gemini watches the video from its URL.
             logger.info("YouTube transcript unavailable (%s); falling back to URL summary", error)
-            result = learning_service.summarize_from_url(job["text"])
+            result = learning_service.summarize_from_url_with_gemini(job["text"], error)
             if not result.get("success"):
                 raise SourceError(result.get("error") or error or "Could not read the YouTube video.")
             text = result["summary"]

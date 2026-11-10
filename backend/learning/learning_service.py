@@ -3,14 +3,16 @@ Learning service for mindmaps, MCQs, and flashcards generation.
 """
 import json
 import logging
+import os
 from typing import Dict, Any, List, Optional
+from langchain_core.messages import HumanMessage, SystemMessage
 from ninja.files import UploadedFile
 from core.gemini import GeminiService
 from core.quiz import normalize_question
 from constants import (
     MINDMAP_GENERATION_PROMPT, FLASHCARD_GENERATION_PROMPT, get_mcq_quiz_prompt,
-    TOPIC_EXTRACTION_PROMPT,
-    YOUTUBE_URL_SUMMARY_PROMPT, YOUTUBE_URL_MINDMAP_PROMPT, YOUTUBE_URL_FLASHCARD_PROMPT
+    TOPIC_EXTRACTION_PROMPT, SUMMARIZER_SYSTEM_MESSAGE, STRUCTURED_SUMMARY_FORMAT,
+    TRANSCRIBER_SYSTEM_MESSAGE,
 )
 from schema import (
     MCQQuizStructuredOutput, MCQQuestion, MindmapNode
@@ -26,85 +28,125 @@ class LearningService:
     def __init__(self, gemini_service: GeminiService, text_service: GeminiService | None = None):
         # Gemini LLM service wrapper
         self.gemini_service = gemini_service
-        # Plain-text generation (may be Cerebras); URL-based methods stay on Gemini,
-        # which can open and watch YouTube links.
+        # Plain-text generation (may be Cerebras). Gemini only watches YouTube videos
+        # whose transcript cannot be fetched.
         self.text_service = text_service or gemini_service
 
     # ==============================
     # URL-based generation methods
     # ==============================
+    # YouTube links: fetch the transcript and run the normal text prompts on the
+    # text model (Cerebras when configured). If no transcript can be fetched (no
+    # captions, or YouTube blocking our server's IP), Gemini watches the video from
+    # its URL and its transcription goes through the same text prompts.
+
+    MAX_TRANSCRIPT_CHARS = int(os.getenv("YOUTUBE_TRANSCRIPT_MAX_CHARS", "100000"))
+
+    YOUTUBE_WATCH_PROMPT = (
+        "Watch this video and write out its content in order: transcribe what is said, and "
+        "briefly describe anything important that is only shown on screen (slides, diagrams, "
+        "equations, demonstrations). Plain text only, no commentary."
+    )
+
+    def _from_youtube(self, url: str, what: str, from_text, transcript_result=None) -> Dict[str, Any]:
+        """
+        Get the video's text (transcript, else Gemini watching the URL) and return
+        ``{"success": True, **from_text(text)}``, or a readable error.
+        ``transcript_result`` skips the transcript fetch when the caller already tried it.
+        """
+        transcript, transcript_error = transcript_result or get_youtube_transcript(url)
+        source = "transcript"
+        if not transcript:
+            logger.info("No YouTube transcript for %s (%s); asking Gemini to watch it", url, transcript_error)
+            transcript, reader_error = self._gemini_watch_video(url)
+            source = "gemini_video"
+            if not transcript:
+                return {
+                    "success": False,
+                    "error": (
+                        f"Couldn't read this YouTube video. {transcript_error} The backup video "
+                        f"reader also failed ({reader_error}). Try pasting the video's transcript "
+                        "as text, or upload the video or audio file instead."
+                    ),
+                }
+
+        transcript = transcript[: self.MAX_TRANSCRIPT_CHARS]
+        try:
+            result = {"success": True, **from_text(transcript), "source": source}
+        except json.JSONDecodeError as e:
+            return {"success": False, "error": f"Failed to parse {what} JSON: {str(e)}."}
+        except Exception as e:
+            return {"success": False, "error": f"Error generating {what} from the video: {str(e)}"}
+        if source == "transcript":
+            result["transcript"] = transcript
+        return result
+
+    def _gemini_watch_video(self, url: str) -> tuple[str | None, str | None]:
+        """Gemini reads the YouTube URL as a video (file_data part). Returns (text, error)."""
+        if self.gemini_service is None:
+            return None, "no video reader is configured"
+        message = [
+            SystemMessage(content=TRANSCRIBER_SYSTEM_MESSAGE),
+            HumanMessage(content=[
+                {"type": "text", "text": self.YOUTUBE_WATCH_PROMPT},
+                {"type": "media", "file_uri": url, "mime_type": "video/mp4"},
+            ]),
+        ]
+        try:
+            text = (self.gemini_service.llm.invoke(message).content or "").strip()
+        except Exception as e:
+            logger.warning("Gemini could not watch %s: %s", url, str(e)[:300])
+            return None, self._short_provider_error(e)
+        return (text, None) if text else (None, "it returned nothing")
+
+    @staticmethod
+    def _short_provider_error(e: Exception) -> str:
+        msg = str(e)
+        if "429" in msg or "RESOURCE_EXHAUSTED" in msg or "quota" in msg.lower():
+            return "it is over its usage limit"
+        if "503" in msg or "UNAVAILABLE" in msg or "overloaded" in msg.lower():
+            return "it is overloaded right now"
+        return msg[:150]
+
+    def _summary_from_text(self, text: str) -> Dict[str, Any]:
+        summary = self.text_service.run_prompt(
+            SUMMARIZER_SYSTEM_MESSAGE, STRUCTURED_SUMMARY_FORMAT.format(content=text)).strip()
+        if not summary:
+            raise ValueError("Empty summary returned from model.")
+        return {"summary": summary}
 
     def summarize_from_url(self, url: str) -> Dict[str, Any]:
-        """
-        Summarize a YouTube video by providing only the URL to Gemini.
-        Returns a dict with success status and summary or error message.
-        """
-        try:
-            # Instruct Gemini to access/analyze the URL and produce a summary
-            summary_text = self.gemini_service.run_prompt(YOUTUBE_URL_SUMMARY_PROMPT, url)
-            summary_text = summary_text.strip()
-            if not summary_text:
-                return {"success": False, "error": "Empty summary returned from model."}
-            return {"success": True, "summary": summary_text}
-        except Exception as e:
-            return {"success": False, "error": f"Error summarizing from URL: {str(e)}"}
+        """Summarize a YouTube video (transcript, else Gemini watching it; text on the text model)."""
+        return self._from_youtube(url, "summary", self._summary_from_text)
+
+    def summarize_from_url_with_gemini(self, url: str, transcript_error: str) -> Dict[str, Any]:
+        """For callers that already failed to fetch the transcript: Gemini watches the video."""
+        return self._from_youtube(url, "summary", self._summary_from_text,
+                                  transcript_result=(None, transcript_error))
 
     def mindmap_from_url(self, url: str) -> Dict[str, Any]:
-        """
-        Generate a mindmap JSON structure by giving Gemini the YouTube URL directly.
-        """
-        try:
-            # Ask Gemini for JSON-only mindmap
-            mindmap_json = self.gemini_service.run_prompt(YOUTUBE_URL_MINDMAP_PROMPT, url)
-            mindmap_json = self._clean_json_response(mindmap_json)
-            mindmap_data = json.loads(mindmap_json)
-            return {
-                "success": True,
-                "mindmap": MindmapNode(**mindmap_data)
-            }
-        except json.JSONDecodeError as e:
-            return {"success": False, "error": f"Failed to parse mindmap JSON: {str(e)}."}
-        except Exception as e:
-            return {"success": False, "error": f"Error generating mindmap from URL: {str(e)}"}
+        """Mindmap for a YouTube video."""
+        def from_text(text: str) -> Dict[str, Any]:
+            raw = self.text_service.run_prompt(MINDMAP_GENERATION_PROMPT, text)
+            return {"mindmap": self._mindmap_from_json(raw)}
+        return self._from_youtube(url, "mindmap", from_text)
 
     def flashcards_from_url(self, url: str) -> Dict[str, Any]:
-        """
-        Generate flashcards (JSON array) by giving Gemini the YouTube URL directly.
-        """
-        try:
-            flashcards_json = self.gemini_service.run_prompt(YOUTUBE_URL_FLASHCARD_PROMPT, url)
-            flashcards_json = self._clean_json_response(flashcards_json)
-            flashcards_list = json.loads(flashcards_json)
-            if not isinstance(flashcards_list, list):
-                return {"success": False, "error": "Model did not return a JSON array for flashcards."}
-            return {
-                "success": True,
-                "flashcards": flashcards_list,
-                "total_cards": len(flashcards_list)
-            }
-        except json.JSONDecodeError as e:
-            return {"success": False, "error": f"Failed to parse flashcards JSON: {str(e)}."}
-        except Exception as e:
-            return {"success": False, "error": f"Error generating flashcards from URL: {str(e)}"}
+        """Flashcards for a YouTube video."""
+        def from_text(text: str) -> Dict[str, Any]:
+            raw = self.text_service.run_prompt(FLASHCARD_GENERATION_PROMPT, text)
+            cards = json.loads(self._clean_json_response(raw))
+            if not isinstance(cards, list):
+                raise ValueError("Model did not return a JSON array for flashcards.")
+            return {"flashcards": cards, "total_cards": len(cards)}
+        return self._from_youtube(url, "flashcards", from_text)
 
     def mcq_from_url(self, url: str, num_questions: int = 10) -> Dict[str, Any]:
-        """
-        Generate MCQ quiz questions by giving Gemini the YouTube URL directly.
-        Uses structured output schema for robust parsing.
-        """
-        try:
-            prompt = (
-                f"Access and analyze the content at the following YouTube URL and create {num_questions} "
-                f"multiple choice questions with explanations. URL: {url}"
-            )
-            questions = self._invoke_mcq(prompt, num_questions, service=self.gemini_service)
-
-            return {
-                "success": True,
-                "quiz": questions
-            }
-        except Exception as e:
-            return {"success": False, "error": f"Error generating MCQ quiz from URL: {str(e)}"}
+        """MCQ quiz for a YouTube video."""
+        def from_text(text: str) -> Dict[str, Any]:
+            prompt = f"{get_mcq_quiz_prompt(num_questions)}\n\nContent:\n{text}"
+            return {"quiz": self._invoke_mcq(prompt, num_questions)}
+        return self._from_youtube(url, "MCQ quiz", from_text)
 
     # ==============================
     # Existing content extraction and generation
@@ -172,10 +214,9 @@ class LearningService:
             mindmap_json = self.text_service.run_prompt(MINDMAP_GENERATION_PROMPT, content)
             mindmap_json = self._clean_json_response(mindmap_json)
             
-            mindmap_data = json.loads(mindmap_json)
             return {
                 "success": True,
-                "mindmap": MindmapNode(**mindmap_data),
+                "mindmap": self._mindmap_from_json(mindmap_json),
                 "content_type": content_type,
                 "content": content,
                 "extracted_topic": extracted_topic
@@ -257,6 +298,19 @@ class LearningService:
             return {"success": False, "error": f"Failed to parse flashcards JSON: {str(e)}."}
         except Exception as e:
             return {"success": False, "error": f"Error generating flashcards: {str(e)}"}
+
+    def _mindmap_from_json(self, raw: str) -> MindmapNode:
+        """Parse a mindmap, tolerating leaf nodes given as plain strings ("Detail" for {"name": "Detail"})."""
+        def node(value):
+            if isinstance(value, str):
+                return {"name": value}
+            if isinstance(value, dict):
+                value = dict(value)
+                value.setdefault("name", value.pop("title", None) or value.pop("label", None) or "")
+                if value.get("children") is not None:
+                    value["children"] = [node(c) for c in value["children"]]
+            return value
+        return MindmapNode(**node(json.loads(self._clean_json_response(raw))))
 
     def _clean_json_response(self, response: str) -> str:
         """Helper to clean up JSON responses from the LLM."""

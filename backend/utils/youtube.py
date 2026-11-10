@@ -1,8 +1,21 @@
 # youtube.py
-# This file will contain helper functions for YouTube processing
+"""YouTube helpers: URL detection and transcript fetching (youtube-transcript-api 1.x)."""
 
+import logging
+import os
 import re
-from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound, TranscriptsDisabled
+
+from youtube_transcript_api import (
+    YouTubeTranscriptApi,
+    NoTranscriptFound,
+    TranscriptsDisabled,
+    VideoUnavailable,
+    RequestBlocked,
+)
+
+logger = logging.getLogger(__name__)
+
+PREFERRED_LANGS = ['en', 'en-US', 'en-GB']
 
 
 def is_youtube_url(url: str) -> bool:
@@ -19,91 +32,83 @@ def is_youtube_url(url: str) -> bool:
     return re.match(youtube_regex, url) is not None
 
 
+def extract_video_id(url: str) -> str | None:
+    regex = (
+        r"(?:https?:\/\/)?(?:www\.|m\.)?(?:youtube(?:-nocookie)?\.com\/(?:[^\/\n\s]+\/\S+\/|"
+        r"(?:v|e(?:mbed)?|shorts|live)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})"
+    )
+    match = re.search(regex, url or "")
+    return match.group(1) if match else None
+
+
+def _transcript_api() -> YouTubeTranscriptApi:
+    """
+    YouTube blocks transcript requests from most cloud IPs (AWS, GCP, ...).
+    Set YOUTUBE_PROXY_URL (e.g. a residential proxy, http://user:pass@host:port)
+    to route the requests through it.
+    """
+    proxy_url = os.getenv("YOUTUBE_PROXY_URL")
+    if proxy_url:
+        from youtube_transcript_api.proxies import GenericProxyConfig
+        return YouTubeTranscriptApi(proxy_config=GenericProxyConfig(http_url=proxy_url, https_url=proxy_url))
+    return YouTubeTranscriptApi()
+
+
 def get_youtube_transcript(url: str) -> tuple[str | None, str | None]:
     """
     Fetches the transcript for a given YouTube URL.
-    Args:
-        url: The URL of the YouTube video.
-    Returns:
-        A tuple containing the transcript text and an error message.
-        If successful, the error message will be None.
-        If an error occurs, the transcript will be None.
+    Returns (transcript_text, None) on success or (None, readable_error) on failure.
     """
-    # Regex to extract the video ID from various YouTube URL formats
-    regex = r"(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})"
-
-    video_id_match = re.search(regex, url)
-
-    if not video_id_match:
+    video_id = extract_video_id(url)
+    if not video_id:
         return None, "Invalid YouTube URL: Could not extract video ID."
 
-    video_id = video_id_match.group(1)
-
     try:
-        # Prefer robust flow over direct get_transcript
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        transcript_list = _transcript_api().list(video_id)
+        selected = None
 
-        preferred_langs = ['en', 'en-US', 'en-GB']
-        selected_transcript = None
-
-        # 1) Try human-created English captions
-        try:
-            selected_transcript = transcript_list.find_transcript(preferred_langs)
-        except Exception:
-            selected_transcript = None
-
-        # 2) Try auto-generated English captions
-        if selected_transcript is None:
+        # 1) Human-created English captions, 2) auto-generated English captions
+        for finder in (transcript_list.find_manually_created_transcript,
+                       transcript_list.find_generated_transcript):
             try:
-                selected_transcript = transcript_list.find_generated_transcript(preferred_langs)
-            except Exception:
-                selected_transcript = None
+                selected = finder(PREFERRED_LANGS)
+                break
+            except NoTranscriptFound:
+                continue
 
-        # 3) Try translating any available transcript to English
-        if selected_transcript is None:
-            for t in transcript_list:
-                if getattr(t, 'is_translatable', False):
+        # 3) Any transcript translated to English, 4) any transcript at all
+        if selected is None:
+            available = list(transcript_list)
+            for t in available:
+                if t.is_translatable:
                     try:
-                        selected_transcript = t.translate('en')
+                        selected = t.translate('en')
                         break
                     except Exception:
                         continue
+            if selected is None and available:
+                selected = available[0]
+        if selected is None:
+            return None, "This video has no captions or transcript."
 
-        # 4) Fallback: use any available transcript
-        if selected_transcript is None:
-            try:
-                selected_transcript = next(iter(transcript_list))
-            except StopIteration:
-                raise NoTranscriptFound(video_id)
-
-        entries = selected_transcript.fetch()
-        text_chunks = []
-        for item in entries:
-            text = item.get('text') or ''
-            if not text:
-                continue
-            text_chunks.append(text)
-
-        transcript_text = " ".join(text_chunks).strip()
+        snippets = selected.fetch()
+        transcript_text = " ".join(s.text for s in snippets if s.text).strip()
         if not transcript_text:
-            return None, f"Empty transcript received for video ID: {video_id}."
+            return None, "The video's transcript is empty."
         return transcript_text, None
 
-    except NoTranscriptFound:
-        return None, f"No transcript found for the video with ID: {video_id}."
     except TranscriptsDisabled:
-        return None, f"Transcripts are disabled for the video with ID: {video_id}."
+        return None, "Captions are turned off for this video."
+    except NoTranscriptFound:
+        return None, "This video has no captions or transcript."
+    except VideoUnavailable:
+        return None, "This video is unavailable (private, removed or region-locked)."
+    except RequestBlocked:  # also covers IpBlocked
+        logger.warning("YouTube blocked the transcript request for %s", video_id)
+        return None, "YouTube blocked our request for the transcript (this happens from cloud servers)."
     except Exception as e:
-        # Handle common upstream issues more clearly
         message = str(e)
-        if '429' in message or 'TooManyRequests' in message:
-            return None, "YouTube rate-limited the request. Please try again later."
-        if 'no element found' in message:
-            return None, (
-                f"Received an empty response when fetching transcript for video ID {video_id}. "
-                "The video may be restricted or temporarily unavailable."
-            )
-        # Generic fallback
-        return None, (
-            f"An unexpected error occurred while fetching the transcript for video ID {video_id}: {message}"
-        )
+        logger.warning("Transcript fetch failed for %s: %s", video_id, message[:300])
+        if '429' in message or 'Too Many Requests' in message:
+            return None, "YouTube rate-limited the transcript request. Please try again later."
+        return None, "Could not fetch the video's transcript."

@@ -46,6 +46,8 @@ PyJWT==2.9.0
 PyLTI1p3==2.0.0
 pyparsing==3.2.3
 PyPDF2==3.0.1
+pypdfium2>=4.30,<6
+Pillow>=10
 python-docx==1.2.0
 python-dotenv==1.1.1
 python-multipart==0.0.20
@@ -62,7 +64,7 @@ typing_extensions==4.14.1
 tzdata==2025.2
 uritemplate==4.2.0
 urllib3==2.5.0
-youtube-transcript-api==0.6.2
+youtube-transcript-api>=1.2,<2
 zstandard==0.23.0
 gunicorn>=23,<24
 whitenoise>=6.8,<7
