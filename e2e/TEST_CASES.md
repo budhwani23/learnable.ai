@@ -97,7 +97,7 @@ Type: **H** happy path · **B** boundary / edge · **F** failure / negative · *
 |---|---|---|---|
 | X-01 | S | Protected endpoints without a token | 401 |
 | X-02 | S | Image proxy with a wrong key | 401 |
-| X-03 | S | Ordinary user calls `POST /users/credits/add` | Should be refused (users must not grant themselves credits) |
+| X-03 | S | Ordinary user calls `POST /admin/users/{id}/credits` (and the removed `/users/credits/add`) | Should be refused (users must not grant themselves credits) |
 | X-04 | S | Refresh endpoint with an access token / garbage | 401 |
 | X-05 | B | Malformed JSON body on register | 4xx, not 500 |
 | X-06 | S | Token signed with a different key | 401 |

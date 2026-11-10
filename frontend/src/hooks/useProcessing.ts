@@ -6,6 +6,7 @@ import { useMutation } from '@tanstack/react-query';
 import { useFileUpload } from './useFileUpload';
 import apiClient from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
 import { PROCESSING_STATES } from '@/lib/constants';
 import type { 
   ProcessingStatus, 
@@ -25,6 +26,8 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
 
   const [results, setResults] = useState<ProcessingResults | null>(null);
   const { updateFileStatus } = useFileUpload();
+  // Each generation uses (or, on failure, refunds) a credit: keep the balance shown in sync.
+  const { refreshUser } = useAuth();
 
   // Tell the user when generation fails (quota, server error, network...), instead of
   // silently re-enabling the button.
@@ -113,6 +116,7 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
     onError: (error: Error) => {
       reportFailure(error);
     },
+    onSettled: () => { refreshUser(); },
   });
 
   // Individual processing mutations
@@ -152,6 +156,7 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
     onError: (error: Error) => {
       reportFailure(error);
     },
+    onSettled: () => { refreshUser(); },
   });
 
   const generateMindmapMutation = useMutation({
@@ -193,6 +198,7 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
     onError: (error: Error) => {
       reportFailure(error);
     },
+    onSettled: () => { refreshUser(); },
   });
 
   const generateQuizMutation = useMutation({
@@ -235,6 +241,7 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
     onError: (error: Error) => {
       reportFailure(error);
     },
+    onSettled: () => { refreshUser(); },
   });
 
   const generateFlashcardsMutation = useMutation({
@@ -277,6 +284,7 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
     onError: (error: Error) => {
       reportFailure(error);
     },
+    onSettled: () => { refreshUser(); },
   });
 
   // Cancel processing

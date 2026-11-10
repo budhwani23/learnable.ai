@@ -71,18 +71,14 @@ class CreditsAndRefreshTests(TestCase):
     def token(self, user):
         return create_tokens(user.id, user.username)
 
-    def test_ordinary_user_cannot_add_or_deduct_credits(self):
-        access = self.token(self.user)[0]
+    def test_old_self_service_credit_endpoints_are_gone(self):
+        # Replaced by per-resource credits managed in the admin panel (/api/admin/users/{id}/credits).
+        access = self.token(self.staff)[0]
         for path in ("/api/users/credits/add", "/api/users/credits/deduct"):
-            r = post(self.client, path, {"amount": 1000}, access)
-            self.assertEqual(r.status_code, 403, path)
-        me = self.client.get("/api/users/auth/me", HTTP_AUTHORIZATION=f"Bearer {access}").json()
-        self.assertEqual(me["credits"], 100)
-
-    def test_staff_can_add_credits(self):
-        r = post(self.client, "/api/users/credits/add", {"amount": 50}, self.token(self.staff)[0])
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json()["credits"], 150)
+            self.assertEqual(post(self.client, path, {"amount": 50}, access).status_code, 404, path)
+        me = self.client.get("/api/users/auth/me", HTTP_AUTHORIZATION=f"Bearer {self.token(self.user)[0]}").json()
+        self.assertEqual(set(me["credits"]), {"summary", "mindmap", "quiz", "flashcards", "video", "slides"})
+        self.assertTrue(all(c == {"limit": 3, "used": 0, "remaining": 3} for c in me["credits"].values()))
 
     def test_refresh_accepts_json_body_and_query(self):
         refresh = self.token(self.user)[1]

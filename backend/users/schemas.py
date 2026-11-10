@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Dict, Literal, Optional
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -51,19 +51,25 @@ class TokenOut(BaseModel):
     refresh: str
 
 
+class CreditOut(BaseModel):
+    limit: int
+    used: int
+    remaining: int
+
+
 class UserOut(BaseModel):
-    """Public user info together with current credits."""
+    """Public user info with waitlist status and per-resource credits."""
     id: int
     username: str
     # Plain str: users created from an LMS launch may have no email shared by the LMS.
     email: str = ""
-    credits: int
     role: Role
-
-
-class CreditChangeIn(BaseModel):
-    """Schema to add or deduct credits in a simple way."""
-    amount: int
+    is_admin: bool = False
+    # pending (waitlist) | approved | rejected | banned
+    status: str
+    status_reason: str = ""
+    # {resource_type: {limit, used, remaining}}
+    credits: Dict[str, CreditOut]
 
 
 class ErrorOut(BaseModel):

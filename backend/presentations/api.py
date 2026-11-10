@@ -7,6 +7,7 @@ from ninja.files import UploadedFile
 from ninja.router import Router
 
 from explainer.sources import describe_input, save_upload
+from users import credits
 from users.security import JWTAuth
 
 from . import client
@@ -72,11 +73,20 @@ def create_presentation_job(
     n_slides = max(3, min(20, int(data.n_slides or 8)))
     focus = (data.focus or "").strip()[:300] or None
 
-    job = store.create(request.auth.id, spec["source_type"], spec["source_label"], focus,
-                       n_slides=n_slides, template=data.template, tone=data.tone,
-                       slide_count=0, has_pptx=False, has_pdf=False)
-    store.update(job["id"], **save_upload(spec, store.job_dir(job["id"])))
-    store.submit(job["id"], run_presentation_job)
+    # One "slides" credit per started job; given back if the job fails.
+    try:
+        event = credits.consume(request.auth, "slides", ref="presentation")
+    except credits.OutOfCredits as exc:
+        return credits.out_of_credits_response(request.auth, exc)
+    try:
+        job = store.create(request.auth.id, spec["source_type"], spec["source_label"], focus,
+                           n_slides=n_slides, template=data.template, tone=data.tone,
+                           slide_count=0, has_pptx=False, has_pdf=False)
+        store.update(job["id"], usage_event_id=event.id, **save_upload(spec, store.job_dir(job["id"])))
+        store.submit(job["id"], credits.refund_if_job_failed(run_presentation_job, store.get))
+    except Exception:
+        credits.refund(event.id)
+        raise
     return {"success": True, "job": store.public_view(store.get(job["id"]))}
 
 

@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { CreditNote } from "@/components/CreditBadge";
+import { useAuth } from "@/hooks/useAuth";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
@@ -40,6 +42,7 @@ const PresentationPanel: React.FC<PresentationPanelProps> = ({
   disabled,
   onGenerate,
 }) => {
+  const noCredits = useAuth().creditsLeft("slides") === 0;
   const { job, pdfUrl, isStarting, isActive, uploadProgress, error, templates, tones,
     isDownloading, download, reset } = presentation;
   const [focus, setFocus] = useState("");
@@ -188,12 +191,13 @@ const PresentationPanel: React.FC<PresentationPanelProps> = ({
       <Button
         size="lg"
         onClick={() => onGenerate({ focus, nSlides, template, tone })}
-        disabled={disabled || !hasContent}
+        disabled={disabled || !hasContent || noCredits}
         className="w-full bg-emerald-600 text-white"
       >
         <Presentation className="h-4 w-4 mr-2" />
         {failure ? "Try Again" : "Create Presentation"}
       </Button>
+      <CreditNote type="slides" />
     </div>
   );
 };

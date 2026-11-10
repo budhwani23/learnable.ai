@@ -36,6 +36,8 @@ function ensureDb() {
 const env = {
   ...process.env,
   DJANGO_DEBUG: "true",
+  // Test users register through the API; skip the launch waitlist so they can use the app.
+  WAITLIST_ENABLED: "false",
   DB_HOST: "127.0.0.1",
   DB_PORT,
   DB_NAME: "learnable_e2e",

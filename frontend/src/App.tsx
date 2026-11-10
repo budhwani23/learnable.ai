@@ -11,6 +11,8 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import ResourceView from "./pages/ResourceView";
+import Waitlist from "./pages/Waitlist";
+import Admin from "./pages/Admin";
 import { LtiBridge, LtiPicker } from "./pages/LtiLaunch";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -32,6 +34,15 @@ const App = () => {
               element={
                 <ProtectedRoute isAuthed={isAuthenticated}>
                   <Input/>
+                </ProtectedRoute>
+              }
+            />
+            <Route path="/waitlist" element={<Waitlist />} />
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute isAuthed={isAuthenticated} adminOnly>
+                  <Admin />
                 </ProtectedRoute>
               }
             />

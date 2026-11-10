@@ -21,6 +21,7 @@ import type {
   PresentationJob,
   PresentationJobResponse,
   PresentationOptions,
+  Me,
   ApiError
 } from './types';
 
@@ -295,7 +296,7 @@ class ApiClient {
   }
 
   async me() {
-    return this.makeRequest<{ id: number; username: string; email: string; credits: number; role: Role }>(
+    return this.makeRequest<Me>(
       API_ENDPOINTS.AUTH_ME,
       { method: 'GET' },
       true

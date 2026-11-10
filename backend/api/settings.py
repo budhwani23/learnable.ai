@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     'users',  # NEW: app for authentication and credit management
     'library',
     'lti',
+    'adminpanel',
     'pylti1p3.contrib.django.lti1p3_tool_config',  # LMS platform registrations + tool keys
 ]
 
@@ -282,13 +283,16 @@ JWT_ACCESS_TTL_SECONDS = int(os.getenv('JWT_ACCESS_TTL_SECONDS', 60 * 60))      
 JWT_REFRESH_TTL_SECONDS = int(os.getenv('JWT_REFRESH_TTL_SECONDS', 60 * 60 * 24 * 7))  # 7 days
 
 # =========================
-# Credit System Config
+# Credits + waitlist
 # =========================
-# Define how app "credits" map to Gemini token usage.
-# Example: charge 1 credit per 1k input tokens, 2 credits per 1k output tokens. Min 1 per call.
-CREDITS_PER_1K_INPUT_TOKENS = float(os.getenv('CREDITS_PER_1K_INPUT_TOKENS', 1.0))
-CREDITS_PER_1K_OUTPUT_TOKENS = float(os.getenv('CREDITS_PER_1K_OUTPUT_TOKENS', 2.0))
-MIN_CREDIT_DEBIT_PER_CALL = int(os.getenv('MIN_CREDIT_DEBIT_PER_CALL', 1))
+# Each user may start this many generations per resource type (summary, mindmap, quiz,
+# flashcards, video, slides), shown as "credits". Admins top up in the admin panel.
+DEFAULT_CREDITS_PER_RESOURCE = int(os.getenv('DEFAULT_CREDITS_PER_RESOURCE', 3))
+# New self sign-ups wait for admin approval. Set WAITLIST_ENABLED=false to let them straight in.
+WAITLIST_ENABLED = os.getenv('WAITLIST_ENABLED', 'true').lower() in ('1', 'true', 'yes')
+# Reverse proxies in front of Django that append to X-Forwarded-For (e.g. CloudFront + ALB = 2).
+# 0 = record REMOTE_ADDR in the admin audit log and ignore the client-controllable header.
+TRUSTED_PROXY_COUNT = int(os.getenv('TRUSTED_PROXY_COUNT', 0))
 
 # =========================
 # LMS integrations (LTI 1.3 + Google)
