@@ -156,6 +156,11 @@ class PresentonRetryTests(SimpleTestCase):
         self.assertEqual(calls, 3)
         self.assertIn("incomplete slide", str(result))
 
+    def test_empty_llm_reply_is_retried(self):
+        empty = FakeResponse({"detail": "LLM did not return any content"}, 400)
+        result, calls = self.generate([empty, self.GOOD])
+        self.assertEqual((result["presentation_id"], calls), ("p1", 2))
+
     def test_other_server_errors_are_not_retried(self):
         result, calls = self.generate([FakeResponse({"detail": "Template not found"}, 500)])
         self.assertEqual(calls, 1)

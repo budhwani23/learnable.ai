@@ -70,7 +70,7 @@ def _raise_for(resp: requests.Response) -> None:
     if resp.status_code == 428:
         raise PresentonError("The presentation service needs its first-time setup (or DISABLE_AUTH for local dev).")
     message = f"Presentation service error ({resp.status_code}): {detail or 'unknown error'}"
-    if resp.status_code >= 500 and _BAD_JSON.search(str(detail or "")):
+    if resp.status_code in (400, 500, 502) and _BAD_JSON.search(str(detail or "")):
         raise PresentonBadOutput(message)
     raise PresentonError(message)
 

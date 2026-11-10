@@ -8,6 +8,7 @@ from library.api import router as library_router
 from lti.api import router as lti_router
 from presentations.api import router as presentations_router
 from presentations.image_proxy import router as presentations_image_router
+from presentations.llm_proxy import router as presentations_llm_router
 from adminpanel.api import router as admin_router
 from users.security import AccountBlocked
 
@@ -30,3 +31,4 @@ api.add_router("/presentations", presentations_router, tags=["Presentations"])
 # Called by the Presenton container (Bearer PRESENTON_IMAGE_PROXY_KEY), not by browsers.
 api.add_router("/admin", admin_router, tags=["Admin"])
 api.add_router("/presentations/image-proxy", presentations_image_router, tags=["Presentations"])
+api.add_router("/presentations/llm-proxy", presentations_llm_router, tags=["Presentations"])

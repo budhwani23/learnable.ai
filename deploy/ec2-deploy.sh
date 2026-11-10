@@ -42,7 +42,15 @@ env_get() { grep -E "^$1=" "$STATE_DIR/app.env" | tail -1 | cut -d= -f2- || true
 google_key="$(env_get GOOGLE_API_KEY)"
 proxy_key="$(env_get PRESENTON_IMAGE_PROXY_KEY)"
 cerebras_key="$(env_get CEREBRAS_API_KEY)"
-if [ -n "$cerebras_key" ]; then
+if [ -n "$cerebras_key" ] && [ -n "$proxy_key" ]; then
+  # Slide text: qwen on Cerebras through the app's llm-proxy (non-streaming calls,
+  # rate-limit retries, JSON checked) instead of Presenton's own Cerebras client, which
+  # sometimes fails a whole deck on a cut-off slide.
+  llm_settings="LLM=custom
+CUSTOM_LLM_URL=http://$NAME:8000/api/presentations/llm-proxy/v1
+CUSTOM_LLM_API_KEY=$proxy_key
+CUSTOM_MODEL=$(env_get CEREBRAS_MODEL)"
+elif [ -n "$cerebras_key" ]; then
   # Slide text: qwen on Cerebras (Presenton's built-in provider).
   llm_settings="LLM=cerebras
 CEREBRAS_API_KEY=$cerebras_key

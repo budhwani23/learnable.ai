@@ -23,9 +23,14 @@ services:
     volumes:
       - ./presenton_data:/app_data
     environment:
-      # Slide text is written by qwen-3.8-27b on Cerebras (Presenton's built-in provider).
-      # Set PRESENTON_LLM=google to go back to Gemini (GOOGLE_API_KEY / PRESENTON_GOOGLE_MODEL).
-      LLM: ${PRESENTON_LLM:-cerebras}
+      # Slide text is written by qwen-3.8-27b on Cerebras through the backend's
+      # /llm-proxy endpoint (non-streaming, retries, JSON checked; backend on port 8000).
+      # PRESENTON_LLM=cerebras uses Presenton's own Cerebras client instead, and
+      # PRESENTON_LLM=google goes back to Gemini (GOOGLE_API_KEY / PRESENTON_GOOGLE_MODEL).
+      LLM: ${PRESENTON_LLM:-custom}
+      CUSTOM_LLM_URL: ${PRESENTON_LLM_URL:-http://host.docker.internal:8000/api/presentations/llm-proxy/v1}
+      CUSTOM_LLM_API_KEY: ${PRESENTON_IMAGE_PROXY_KEY:-}
+      CUSTOM_MODEL: ${CEREBRAS_MODEL:-qwen-3.8-27b}
       CEREBRAS_API_KEY: ${CEREBRAS_API_KEY:-}
       CEREBRAS_MODEL: ${CEREBRAS_MODEL:-qwen-3.8-27b}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
