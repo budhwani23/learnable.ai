@@ -7,6 +7,7 @@ from typing import Optional
 from dotenv import load_dotenv
 
 # Core imports
+from users.credits import charges_credit
 from users.security import JWTAuth
 from core.gemini import GeminiService
 
@@ -44,6 +45,7 @@ def hello(request):
 
 
 @router.post("/summarize-content")
+@charges_credit("summary")
 def summarize_content(
     request, 
     data: Optional[SummarizeContentInput] = None, 
@@ -126,6 +128,7 @@ def summarize_content(
 
 
 @router.post("/summarize-text")
+@charges_credit("summary")
 def summarize_text(request, data: SummarizeTextInput):
     """
     Summarize text using Gemini API (legacy endpoint)
@@ -147,6 +150,7 @@ def summarize_text(request, data: SummarizeTextInput):
 
 
 @router.post("/generate-mindmap")
+@charges_credit("mindmap")
 def generate_mindmap(request, data: MindmapInput):
     """
     Generate mindmap JSON structure for D3.js visualization (text only)
@@ -180,6 +184,7 @@ def generate_mindmap(request, data: MindmapInput):
 
 
 @router.post("/generate-mindmap-multimedia")
+@charges_credit("mindmap")
 def generate_mindmap_multimedia(
     request, 
     data: Optional[MindmapMultimediaInput] = None, 
@@ -238,6 +243,7 @@ def generate_mindmap_multimedia(
 
 
 @router.post("/generate-mcq-quiz")
+@charges_credit("quiz")
 def generate_mcq_quiz(request, data: MCQQuizInput):
     """
     Generate MCQ quiz questions using Gemini API with structured output (text only)
@@ -273,6 +279,7 @@ def generate_mcq_quiz(request, data: MCQQuizInput):
 
 
 @router.post("/generate-mcq-quiz-multimedia")
+@charges_credit("quiz")
 def generate_mcq_quiz_multimedia(
     request, 
     data: Optional[MCQQuizMultimediaInput] = None, 
@@ -324,6 +331,7 @@ def generate_mcq_quiz_multimedia(
 
 
 @router.post("/generate-flashcards")
+@charges_credit("flashcards")
 def generate_flashcards(request, data: FlashcardInput):
     """
     Generate flashcards with structured output (text only)
@@ -359,6 +367,7 @@ def generate_flashcards(request, data: FlashcardInput):
 
 
 @router.post("/generate-flashcards-multimedia")
+@charges_credit("flashcards")
 def generate_flashcards_multimedia(
     request, 
     data: Optional[FlashcardMultimediaInput] = None, 
@@ -408,6 +417,7 @@ def generate_flashcards_multimedia(
 
 
 @router.get("/generate-mcq-quiz-query")
+@charges_credit("quiz")
 def generate_mcq_quiz_query(
     request, 
     content: str = Query(..., description="Content to generate quiz from"), 

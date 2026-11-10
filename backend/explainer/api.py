@@ -6,6 +6,7 @@ from ninja import File, Schema
 from ninja.files import UploadedFile
 from ninja.router import Router
 
+from users import credits
 from users.security import JWTAuth
 
 from . import jobs
@@ -44,10 +45,18 @@ def create_explainer_job(
     if error:
         return {"error": error}
 
-    job = jobs.create_job(request.auth.id, spec["source_type"], spec["source_label"], focus)
-    jobs.update_job(job["id"], **save_upload(spec, jobs.job_dir(job["id"])))
-
-    jobs.submit(job["id"], run_explainer_job)
+    # One "video" credit per started job; given back if the job fails.
+    try:
+        event = credits.consume(request.auth, "video", ref="explainer")
+    except credits.OutOfCredits as exc:
+        return credits.out_of_credits_response(request.auth, exc)
+    try:
+        job = jobs.create_job(request.auth.id, spec["source_type"], spec["source_label"], focus)
+        jobs.update_job(job["id"], usage_event_id=event.id, **save_upload(spec, jobs.job_dir(job["id"])))
+        jobs.submit(job["id"], credits.refund_if_job_failed(run_explainer_job, jobs.get_job))
+    except Exception:
+        credits.refund(event.id)
+        raise
     return {"success": True, "job": jobs.public_view(jobs.get_job(job["id"]))}
 
 

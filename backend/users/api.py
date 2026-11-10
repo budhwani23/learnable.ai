@@ -1,15 +1,18 @@
 import json
 from typing import Optional
 
+from django.conf import settings
 from django.contrib.auth import authenticate
-from django.contrib.auth.models import User
-from django.db import IntegrityError
+from django.contrib.auth.models import User, update_last_login
+from django.db import IntegrityError, transaction
 from ninja.router import Router
 
-from .schemas import RegisterIn, LoginIn, GoogleLoginIn, TokenOut, UserOut, CreditChangeIn, ErrorOut
+from .schemas import RegisterIn, LoginIn, GoogleLoginIn, TokenOut, UserOut, ErrorOut
 from .auth import create_tokens, decode_token
-from .security import jwt_auth
-from .services import add_credits, deduct_credits, get_profile, get_role, set_role
+from .credits import credit_summary
+from .models import UserProfile
+from .security import account_block, jwt_auth_any
+from .services import get_profile, get_role, set_role, set_status
 
 # Router that will be mounted under /api/users
 router = Router()
@@ -25,6 +28,27 @@ def _wrong_portal(user: User, wanted: str | None):
     return None
 
 
+def _login_block(user: User):
+    """403 body for accounts that may not sign in at all (deactivated, rejected, banned).
+    Waitlisted (pending) users do get tokens, so the app can show their waitlist screen."""
+    block = account_block(user)
+    if block and block.code != "waitlist":
+        return {"detail": block.detail}
+    return None
+
+
+def _issue_tokens(user: User) -> dict:
+    update_last_login(None, user)  # powers "active users" in the admin stats
+    access, refresh = create_tokens(user.id, user.username)
+    return {"access": access, "refresh": refresh}
+
+
+def _start_on_waitlist(user: User) -> None:
+    """New self sign-ups wait for admin approval while the waitlist is on."""
+    if getattr(settings, "WAITLIST_ENABLED", True) and not user.is_staff:
+        set_status(user, UserProfile.STATUS_PENDING)
+
+
 @router.post("/auth/register", response={200: TokenOut, 409: ErrorOut})
 def register(request, payload: RegisterIn):
     """
@@ -34,18 +58,19 @@ def register(request, payload: RegisterIn):
     - Returns access and refresh tokens
     """
     try:
-        user = User.objects.create_user(
-            username=payload.username,
-            email=payload.email,
-            password=payload.password,
-        )
+        # One transaction: an account must never exist without its waitlist status.
+        with transaction.atomic():
+            user = User.objects.create_user(
+                username=payload.username,
+                email=payload.email,
+                password=payload.password,
+            )
+            set_role(user, payload.role)
+            _start_on_waitlist(user)
     except IntegrityError:
         # Username already exists
         return 409, {"detail": "Username already exists"}
-    set_role(user, payload.role)
-
-    access, refresh = create_tokens(user.id, user.username)
-    return {"access": access, "refresh": refresh}
+    return _issue_tokens(user)
 
 
 @router.post("/auth/login", response={200: TokenOut, 401: ErrorOut, 403: ErrorOut})
@@ -56,12 +81,14 @@ def login(request, payload: LoginIn):
     """
     user = authenticate(username=payload.username, password=payload.password)
     if not user:
+        # Django refuses inactive users; tell them why instead of "invalid credentials".
+        inactive = User.objects.filter(username=payload.username, is_active=False).first()
+        if inactive and inactive.check_password(payload.password):
+            return 403, {"detail": account_block(inactive).detail}
         return 401, {"detail": "Invalid credentials"}
-    if (err := _wrong_portal(user, payload.role)):
+    if (err := _login_block(user)) or (err := _wrong_portal(user, payload.role)):
         return 403, err
-
-    access, refresh = create_tokens(user.id, user.username)
-    return {"access": access, "refresh": refresh}
+    return _issue_tokens(user)
 
 
 @router.post("/auth/google", response={200: TokenOut, 401: ErrorOut, 403: ErrorOut, 503: ErrorOut})
@@ -102,11 +129,10 @@ def google_login(request, payload: GoogleLoginIn):
         user.set_unusable_password()
         user.save()
         set_role(user, payload.role or "student")
-    elif (err := _wrong_portal(user, payload.role)):
+        _start_on_waitlist(user)
+    elif (err := _login_block(user)) or (err := _wrong_portal(user, payload.role)):
         return 403, err
-
-    access, refresh = create_tokens(user.id, user.username)
-    return {"access": access, "refresh": refresh}
+    return _issue_tokens(user)
 
 
 @router.post("/auth/refresh", response={200: TokenOut, 401: ErrorOut})
@@ -134,17 +160,18 @@ def refresh(request, refresh: Optional[str] = None):
         user = User.objects.filter(id=user_id).first()
         if not user:
             return 401, {"detail": "User not found"}
-
-        access, new_refresh = create_tokens(user.id, user.username)
-        return {"access": access, "refresh": new_refresh}
+        if (err := _login_block(user)):
+            return 401, err
+        return _issue_tokens(user)
     except Exception:
         return 401, {"detail": "Invalid or expired refresh token"}
 
 
-@router.get("/auth/me", auth=jwt_auth, response=UserOut)
+@router.get("/auth/me", auth=jwt_auth_any, response=UserOut)
 def me(request):
     """
-    Return the authenticated user's profile with current credit balance.
+    The signed-in user: role, admin flag, waitlist status and remaining credits per
+    resource type. Works for waitlisted users so the app can show their status.
     """
     user = request.auth
     profile = get_profile(user)
@@ -152,41 +179,9 @@ def me(request):
         "id": user.id,
         "username": user.username,
         "email": user.email,
-        "credits": profile.credits,
         "role": profile.role,
+        "is_admin": user.is_staff,
+        "status": UserProfile.STATUS_APPROVED if user.is_staff else profile.status,
+        "status_reason": profile.status_reason,
+        "credits": credit_summary(user),
     }
-
-
-_STAFF_ONLY = {"detail": "Only administrators can change credit balances."}
-
-
-@router.post("/credits/add", auth=jwt_auth, response={200: dict, 400: ErrorOut, 403: ErrorOut})
-def credits_add(request, payload: CreditChangeIn):
-    """
-    Add credits to the current user. Staff only: ordinary users must not be able
-    to grant themselves credits (payments should credit accounts server-side).
-    """
-    if not request.auth.is_staff:
-        return 403, _STAFF_ONLY
-    if payload.amount <= 0:
-        return 400, {"detail": "Amount must be positive"}
-
-    new_balance = add_credits(request.auth, payload.amount)
-    return {"credits": new_balance}
-
-
-@router.post("/credits/deduct", auth=jwt_auth, response={200: dict, 400: ErrorOut, 403: ErrorOut})
-def credits_deduct(request, payload: CreditChangeIn):
-    """
-    Deduct credits from the current user (manual operation, staff only).
-    """
-    if not request.auth.is_staff:
-        return 403, _STAFF_ONLY
-    if payload.amount <= 0:
-        return 400, {"detail": "Amount must be positive"}
-
-    try:
-        result = deduct_credits(request.auth, payload.amount)
-        return {"debited": result.debited, "remaining": result.remaining}
-    except ValueError as e:
-        return 400, {"detail": str(e)} 

@@ -1,20 +1,25 @@
 from django.contrib import admin
-from .models import UserProfile
+
+from .models import CreditAllowance, UsageEvent, UserProfile
 
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    """
-    Admin interface to review and manage user credits and usage.
-    """
-    list_display = (
-        'user',
-        'role',
-        'credits',
-        'gemini_input_tokens',
-        'gemini_output_tokens',
-        'updated_at',
-    )
-    list_filter = ('role',)
-    list_editable = ('role',)
-    search_fields = ('user__username', 'user__email') 
+    """Fallback Django admin view; day-to-day user management lives in the in-app admin panel."""
+    list_display = ('user', 'role', 'status', 'gemini_input_tokens', 'gemini_output_tokens', 'updated_at')
+    list_filter = ('role', 'status')
+    search_fields = ('user__username', 'user__email')
+
+
+@admin.register(CreditAllowance)
+class CreditAllowanceAdmin(admin.ModelAdmin):
+    list_display = ('user', 'resource_type', 'used', 'limit', 'updated_at')
+    list_filter = ('resource_type',)
+    search_fields = ('user__username', 'user__email')
+
+
+@admin.register(UsageEvent)
+class UsageEventAdmin(admin.ModelAdmin):
+    list_display = ('created_at', 'user', 'resource_type', 'refunded', 'ref')
+    list_filter = ('resource_type', 'refunded')
+    search_fields = ('user__username',)

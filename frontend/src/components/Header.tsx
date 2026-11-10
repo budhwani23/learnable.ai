@@ -2,12 +2,15 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { LogOut } from "lucide-react";
+import { Coins, LogOut, Shield } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { RESOURCE_TYPES } from "@/lib/types";
 
 const Header = () => {
   const { pathname } = useLocation();
-  const { user, logout } = useAuth();
+  const { user, logout, isApproved, isAdmin } = useAuth();
+  const totalLeft = user ? RESOURCE_TYPES.reduce((n, t) => n + (user.credits?.[t.id]?.remaining ?? 0), 0) : 0;
   const navigate = useNavigate();
   const isHome = pathname === "/";
   const [scrolled, setScrolled] = useState(false);
@@ -51,14 +54,54 @@ const Header = () => {
           <div className="flex items-center gap-3">
             {user ? (
               <div className="flex items-center gap-2 text-sm">
+                {isAdmin && (
+                  <Button asChild size="sm" variant="ghost" className={pathname === "/admin" ? "text-emerald-700" : ""}>
+                    <Link to="/admin" data-testid="admin-link">
+                      <Shield className="h-4 w-4 sm:mr-1" />
+                      <span className="hidden sm:inline">Admin</span>
+                    </Link>
+                  </Button>
+                )}
+                {isApproved && (
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button size="sm" variant="outline" className="rounded-full h-8 gap-1.5" data-testid="credits-button"
+                              aria-label={`${totalLeft} credits left`}>
+                        <Coins className="h-4 w-4 text-amber-500" />
+                        <span>{totalLeft}</span>
+                        <span className="hidden md:inline text-gray-500">credits</span>
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent align="end" className="w-72">
+                      <p className="text-sm font-medium text-gray-900">Your credits</p>
+                      <p className="text-xs text-gray-500 mb-3">Each generation uses 1 credit of its type. Failed generations are refunded.</p>
+                      <ul className="space-y-1.5" data-testid="credits-list">
+                        {RESOURCE_TYPES.map((t) => {
+                          const c = user.credits?.[t.id];
+                          const left = c?.remaining ?? 0;
+                          return (
+                            <li key={t.id} className="flex items-center justify-between text-sm">
+                              <span className="text-gray-700">{t.label}</span>
+                              <span className={left === 0 ? "text-red-600 font-medium" : "text-gray-900 font-medium"}>
+                                {left} / {c?.limit ?? 0}
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                      <p className="mt-3 text-xs text-gray-500">Need more? Ask an administrator to top up your credits.</p>
+                    </PopoverContent>
+                  </Popover>
+                )}
                 <span className="hidden sm:inline text-gray-700">{user.username}</span>
                 <span
                   className={[
                     "rounded-full px-2.5 py-0.5 text-xs font-medium",
-                    user.role === "teacher" ? "bg-indigo-100 text-indigo-700" : "bg-emerald-100 text-emerald-700",
+                    user.is_admin ? "bg-slate-800 text-white"
+                      : user.role === "teacher" ? "bg-indigo-100 text-indigo-700" : "bg-emerald-100 text-emerald-700",
                   ].join(" ")}
                 >
-                  {user.role === "teacher" ? "Teacher" : "Student"}
+                  {user.is_admin ? "Admin" : user.role === "teacher" ? "Teacher" : "Student"}
                 </span>
                 <Button size="sm" variant="ghost" onClick={() => { logout(); navigate("/"); }}>
                   <LogOut className="h-4 w-4 sm:mr-1" />

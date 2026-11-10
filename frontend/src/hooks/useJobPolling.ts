@@ -3,6 +3,7 @@
 // reload resumes tracking, and poll its status until it finishes.
 
 import { useCallback, useEffect, useState } from 'react';
+import { useAuth } from './useAuth';
 
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
 
@@ -38,6 +39,7 @@ export function useJobPolling<J extends PollableJob, I>({
   const [isStarting, setIsStarting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const { refreshUser } = useAuth();
 
   const isActive = !!job && (job.status === 'queued' || job.status === 'running');
 
@@ -48,6 +50,12 @@ export function useJobPolling<J extends PollableJob, I>({
     getJob(id).then(setJob).catch(() => writeStored(storageKey, null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey]);
+
+  // A failed job's credit is refunded on the server: refresh the balance when a job ends.
+  const finished = !!job && (job.status === 'failed' || job.status === 'succeeded');
+  useEffect(() => {
+    if (finished) refreshUser();
+  }, [finished, refreshUser]);
 
   // Poll while the job is queued/running.
   useEffect(() => {
@@ -75,8 +83,9 @@ export function useJobPolling<J extends PollableJob, I>({
       setError(e instanceof Error ? e.message : 'Could not start generation');
     } finally {
       setIsStarting(false);
+      refreshUser(); // starting a job uses a credit
     }
-  }, [startJob, storageKey]);
+  }, [startJob, storageKey, refreshUser]);
 
   const reset = useCallback(() => {
     setJob(null);

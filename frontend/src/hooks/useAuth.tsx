@@ -1,16 +1,20 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import api from '@/lib/api';
-import type { Role } from '@/lib/types';
+import type { Me, ResourceType, Role } from '@/lib/types';
 
 const ACCESS_KEY = 'auth_access';
 const REFRESH_KEY = 'auth_refresh';
 
-type Me = { id: number; username: string; email: string; credits: number; role: Role };
 
 type AuthContextValue = {
   user: Me | null;
   isAuthenticated: boolean;
   isTeacher: boolean;
+  /** Approved (past the waitlist) and allowed to use the app. */
+  isApproved: boolean;
+  isAdmin: boolean;
+  /** Remaining credits for one resource type (0 when signed out). */
+  creditsLeft: (type: ResourceType) => number;
   loading: boolean;
   login: (username: string, password: string, role?: Role) => Promise<void>;
   register: (username: string, email: string, password: string, role: Role) => Promise<void>;
@@ -40,6 +44,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     else setLoading(false);
   }, [fetchMe]);
 
+  // Pick up admin changes (approval, credit top-ups, bans) when the user returns to the tab.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && localStorage.getItem(ACCESS_KEY)) fetchMe();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [fetchMe]);
+
   const login = useCallback(async (username: string, password: string, role?: Role) => {
     await api.login(username, password, role);
     await fetchMe();
@@ -60,6 +73,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     user,
     isAuthenticated: !!user,
     isTeacher: user?.role === 'teacher',
+    isApproved: user?.status === 'approved',
+    isAdmin: !!user?.is_admin,
+    creditsLeft: (type: ResourceType) => user?.credits?.[type]?.remaining ?? 0,
     loading,
     login,
     register,

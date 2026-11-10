@@ -27,13 +27,18 @@ test.describe("API security", () => {
 
   test("X-03 an ordinary user cannot grant themselves credits", async () => {
     const s = await createUser("student");
-    const before = (await apiGet("users/auth/me", s.access)).json.credits;
+    const me = (await apiGet("users/auth/me", s.access)).json;
     const ctx = await pwRequest.newContext({ baseURL: API + "/" });
-    const r = await ctx.post("users/credits/add", { data: { amount: 1_000_000 }, headers: { Authorization: `Bearer ${s.access}` } });
+    const headers = { Authorization: `Bearer ${s.access}` };
+    // Credits are only changed through the admin panel API, which is admin-only.
+    const r = await ctx.post(`admin/users/${me.id}/credits`, { data: { action: "grant", resource_type: "all", amount: 1000 }, headers });
+    const legacy = await ctx.post("users/credits/add", { data: { amount: 1_000_000 }, headers });
     const after = (await apiGet("users/auth/me", s.access)).json.credits;
     await ctx.dispose();
-    console.log(`credits/add -> ${r.status()}, credits ${before} -> ${after}`);
-    expect(after, "a student must not be able to add credits to their own account").toBe(before);
+    console.log(`admin credits -> ${r.status()}, legacy credits/add -> ${legacy.status()}`);
+    expect(r.status()).toBe(403);
+    expect(legacy.status()).toBe(404);
+    expect(after, "a student must not be able to add credits to their own account").toEqual(me.credits);
   });
 
   test("X-04 refresh endpoint rejects access tokens and garbage", async () => {

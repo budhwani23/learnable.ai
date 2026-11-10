@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { CreditNote } from "@/components/CreditBadge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
@@ -37,7 +38,8 @@ const ExplainerVideoPanel: React.FC<ExplainerVideoPanelProps> = ({
   onGenerate,
 }) => {
   const [focus, setFocus] = useState("");
-  const { isTeacher } = useAuth();
+  const { isTeacher, creditsLeft } = useAuth();
+  const noCredits = creditsLeft("video") === 0;
   const { job, videoUrl, isStarting, isActive, uploadProgress, error, reset } = explainer;
 
   const fileName = `${(job?.title || "explainer").replace(/[^\w\- ]+/g, "").trim() || "explainer"}.mp4`;
@@ -157,12 +159,13 @@ const ExplainerVideoPanel: React.FC<ExplainerVideoPanelProps> = ({
       <Button
         size="lg"
         onClick={() => onGenerate(focus)}
-        disabled={disabled || !hasContent}
+        disabled={disabled || !hasContent || noCredits}
         className="w-full bg-emerald-600 text-white"
       >
         <Clapperboard className="h-4 w-4 mr-2" />
         {failure ? "Try Again" : "Generate Video"}
       </Button>
+      <CreditNote type="video" />
     </div>
   );
 };

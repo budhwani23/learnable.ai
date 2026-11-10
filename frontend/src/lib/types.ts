@@ -65,6 +65,40 @@ export interface MindmapOutput {
 /** Account type: teachers create and share to classes; students study and take shared quizzes. */
 export type Role = 'teacher' | 'student';
 
+/** Every generator has its own allowance of credits (3 by default). */
+export type ResourceType = 'summary' | 'mindmap' | 'quiz' | 'flashcards' | 'video' | 'slides';
+
+export const RESOURCE_TYPES: { id: ResourceType; label: string }[] = [
+  { id: 'summary', label: 'Summary' },
+  { id: 'mindmap', label: 'Mind map' },
+  { id: 'quiz', label: 'Quiz' },
+  { id: 'flashcards', label: 'Flashcards' },
+  { id: 'video', label: 'Explainer video' },
+  { id: 'slides', label: 'Slides' },
+];
+
+export interface CreditBalance {
+  limit: number;
+  used: number;
+  remaining: number;
+}
+
+export type Credits = Record<ResourceType, CreditBalance>;
+
+/** pending = on the waitlist, waiting for an admin to approve the account. */
+export type AccountStatus = 'pending' | 'approved' | 'rejected' | 'banned';
+
+export interface Me {
+  id: number;
+  username: string;
+  email: string;
+  role: Role;
+  is_admin: boolean;
+  status: AccountStatus;
+  status_reason: string;
+  credits: Credits;
+}
+
 // MCQ Quiz Types
 export interface MCQQuestion {
   question: string;

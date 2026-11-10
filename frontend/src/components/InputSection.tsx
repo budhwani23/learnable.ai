@@ -43,6 +43,9 @@ import type { useProcessing } from "@/hooks/useProcessing";
 import type { ProcessingResults } from "@/lib/types";
 import ResultsSection from "@/components/ResultsSection";
 import ExplainerVideoPanel from "@/components/ExplainerVideoPanel";
+import { CreditNote, CreditPill } from "@/components/CreditBadge";
+import { useAuth } from "@/hooks/useAuth";
+import type { ResourceType } from "@/lib/types";
 import { useExplainerVideo } from "@/hooks/useExplainerVideo";
 import { Clapperboard, Presentation } from "lucide-react";
 import PresentationPanel, { type PresentationSettings } from "@/components/PresentationPanel";
@@ -76,6 +79,9 @@ const InputSection: React.FC<InputSectionProps> = ({
   results,
 }) => {
   const [activeTab, setActiveTab] = useState("summary");
+  const { creditsLeft } = useAuth();
+  const TEXT_TABS: ResourceType[] = ["summary", "mindmap", "quiz", "flashcards"];
+  const noCredits = TEXT_TABS.includes(activeTab as ResourceType) && creditsLeft(activeTab as ResourceType) === 0;
   const [textInput, setTextInput] = useState("");
   const [urlInput, setUrlInput] = useState("");
   const [inputMethod, setInputMethod] = useState<"text" | "file" | "url">("text");
@@ -117,6 +123,14 @@ const InputSection: React.FC<InputSectionProps> = ({
 
   // Handle content generation based on active tab and input method
   const handleGenerateContent = () => {
+    if (noCredits) {
+      toast({
+        title: "Out of credits",
+        description: "You've used all your credits for this. Ask an administrator for more.",
+        variant: "destructive",
+      });
+      return;
+    }
     try {
       switch (activeTab) {
         case "summary":
@@ -367,29 +381,35 @@ const InputSection: React.FC<InputSectionProps> = ({
               {/* Content Type Tabs */}
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                 <TabsList className="grid w-full h-auto grid-cols-3 sm:grid-cols-6 gap-1 mb-6 bg-emerald-600">
-                  <TabsTrigger value="summary" className="flex items-center gap-2 text-white">
+                  <TabsTrigger value="summary" className="relative flex items-center gap-2 text-white">
                     <FileText className="h-4 w-4" />
                     <div className="text-sm mr-2">Summary</div>
+                    <CreditPill type="summary" />
                   </TabsTrigger>
-                  <TabsTrigger value="mindmap" className="flex items-center gap-2 text-white">
+                  <TabsTrigger value="mindmap" className="relative flex items-center gap-2 text-white">
                     <Brain className="h-4 w-4" />
                     <div className="text-sm mr-2">Mindmap</div>
+                    <CreditPill type="mindmap" />
                   </TabsTrigger>
-                  <TabsTrigger value="quiz" className="flex items-center gap-2 text-white">
+                  <TabsTrigger value="quiz" className="relative flex items-center gap-2 text-white">
                     <HelpCircle className="h-4 w-4" />
                    <div className="text-sm mr-2">Quiz</div>
+                    <CreditPill type="quiz" />
                   </TabsTrigger>
-                  <TabsTrigger value="flashcards" className="flex items-center gap-2 text-white">
+                  <TabsTrigger value="flashcards" className="relative flex items-center gap-2 text-white">
                     <BookOpen className="h-4 w-4 " />
                     <div className="text-sm mr-1">Flashcards</div>
+                    <CreditPill type="flashcards" />
                   </TabsTrigger>
-                  <TabsTrigger value="video" className="flex items-center gap-2 text-white">
+                  <TabsTrigger value="video" className="relative flex items-center gap-2 text-white">
                     <Clapperboard className="h-4 w-4" />
                     <div className="text-sm mr-1">Video</div>
+                    <CreditPill type="video" />
                   </TabsTrigger>
-                  <TabsTrigger value="slides" className="flex items-center gap-2 text-white">
+                  <TabsTrigger value="slides" className="relative flex items-center gap-2 text-white">
                     <Presentation className="h-4 w-4" />
                     <div className="text-sm mr-1">Slides</div>
+                    <CreditPill type="slides" />
                   </TabsTrigger>
                 </TabsList>
 
@@ -429,7 +449,7 @@ const InputSection: React.FC<InputSectionProps> = ({
                         
                         size="lg"
                         onClick={handleGenerateContent}
-                        disabled={isProcessing || !hasContent() || getLoadingState()}
+                        disabled={isProcessing || !hasContent() || getLoadingState() || noCredits}
                         className="px-6 py-2 w-full rounded text-white 
                         bg-emerald-600"
                       >
@@ -440,6 +460,7 @@ const InputSection: React.FC<InputSectionProps> = ({
                         )}
                         Generate Summary
                       </Button>
+                      <CreditNote type="summary" />
                     </div>
                   )}
                 </TabsContent>
@@ -463,7 +484,7 @@ const InputSection: React.FC<InputSectionProps> = ({
                        
                         size="lg"
                         onClick={handleGenerateContent}
-                        disabled={isProcessing || !hasContent() || getLoadingState()}
+                        disabled={isProcessing || !hasContent() || getLoadingState() || noCredits}
                         className="w-full bg-emerald-600 text-white"
                       >
                         {getLoadingState() ? (
@@ -473,6 +494,7 @@ const InputSection: React.FC<InputSectionProps> = ({
                         )}
                         Create Mindmap
                       </Button>
+                      <CreditNote type="mindmap" />
                     </div>
                   )}
                 </TabsContent>
@@ -496,7 +518,7 @@ const InputSection: React.FC<InputSectionProps> = ({
                        
                         size="lg"
                         onClick={handleGenerateContent}
-                        disabled={isProcessing || !hasContent() || getLoadingState()}
+                        disabled={isProcessing || !hasContent() || getLoadingState() || noCredits}
                         className="w-full bg-emerald-600 text-white"
                       >
                         {getLoadingState() ? (
@@ -506,6 +528,7 @@ const InputSection: React.FC<InputSectionProps> = ({
                         )}
                         Generate Quiz
                       </Button>
+                      <CreditNote type="quiz" />
                     </div>
                   )}
                 </TabsContent>
@@ -529,7 +552,7 @@ const InputSection: React.FC<InputSectionProps> = ({
                         
                         size="lg"
                         onClick={handleGenerateContent}
-                        disabled={isProcessing || !hasContent() || getLoadingState()}
+                        disabled={isProcessing || !hasContent() || getLoadingState() || noCredits}
                         className="w-full bg-emerald-600 text-white"
                       >
                         {getLoadingState() ? (
@@ -539,6 +562,7 @@ const InputSection: React.FC<InputSectionProps> = ({
                         )}
                         Create Flashcards
                       </Button>
+                      <CreditNote type="flashcards" />
                     </div>
                   )}
                 </TabsContent>
