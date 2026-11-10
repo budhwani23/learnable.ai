@@ -2,6 +2,7 @@
 Learning service for mindmaps, MCQs, and flashcards generation.
 """
 import json
+import logging
 from typing import Dict, Any, List, Optional
 from ninja.files import UploadedFile
 from core.gemini import GeminiService
@@ -16,13 +17,18 @@ from schema import (
 )
 from utils.youtube import is_youtube_url, get_youtube_transcript
 
+logger = logging.getLogger(__name__)
+
 
 class LearningService:
     """Handles learning content generation operations."""
 
-    def __init__(self, gemini_service: GeminiService):
+    def __init__(self, gemini_service: GeminiService, text_service: GeminiService | None = None):
         # Gemini LLM service wrapper
         self.gemini_service = gemini_service
+        # Plain-text generation (may be Cerebras); URL-based methods stay on Gemini,
+        # which can open and watch YouTube links.
+        self.text_service = text_service or gemini_service
 
     # ==============================
     # URL-based generation methods
@@ -91,7 +97,7 @@ class LearningService:
                 f"Access and analyze the content at the following YouTube URL and create {num_questions} "
                 f"multiple choice questions with explanations. URL: {url}"
             )
-            questions = self._invoke_mcq(prompt, num_questions)
+            questions = self._invoke_mcq(prompt, num_questions, service=self.gemini_service)
 
             return {
                 "success": True,
@@ -160,10 +166,10 @@ class LearningService:
             if error:
                 return {"success": False, "error": error}
 
-            extracted_topic = self.gemini_service.run_prompt(TOPIC_EXTRACTION_PROMPT, content)
+            extracted_topic = self.text_service.run_prompt(TOPIC_EXTRACTION_PROMPT, content)
             extracted_topic = extracted_topic.strip().strip('"').strip("'")
             
-            mindmap_json = self.gemini_service.run_prompt(MINDMAP_GENERATION_PROMPT, content)
+            mindmap_json = self.text_service.run_prompt(MINDMAP_GENERATION_PROMPT, content)
             mindmap_json = self._clean_json_response(mindmap_json)
             
             mindmap_data = json.loads(mindmap_json)
@@ -236,7 +242,7 @@ class LearningService:
             if error:
                 return {"success": False, "error": error}
 
-            flashcards_json = self.gemini_service.run_prompt(FLASHCARD_GENERATION_PROMPT, content_text)
+            flashcards_json = self.text_service.run_prompt(FLASHCARD_GENERATION_PROMPT, content_text)
             flashcards_json = self._clean_json_response(flashcards_json)
             
             flashcards_data = json.loads(flashcards_json)
@@ -263,7 +269,7 @@ class LearningService:
             response = response[:-3]
         return response.strip()
 
-    def _invoke_mcq(self, task_prompt: str, num_questions: int) -> List[MCQQuestion]:
+    def _invoke_mcq(self, task_prompt: str, num_questions: int, service: GeminiService | None = None) -> List[MCQQuestion]:
         """
         Generate MCQ questions from a fully-formed task prompt.
 
@@ -272,8 +278,13 @@ class LearningService:
         previously caused ``'NoneType' object has no attribute 'questions'``.
         When that happens we fall back to requesting raw JSON and parsing it.
         """
-        structured_llm = self.gemini_service.llm.with_structured_output(MCQQuizStructuredOutput)
-        result = structured_llm.invoke(task_prompt)
+        service = service or self.text_service
+        try:
+            structured_llm = service.llm.with_structured_output(MCQQuizStructuredOutput)
+            result = structured_llm.invoke(task_prompt)
+        except Exception as exc:  # e.g. a provider without tool/JSON-schema support
+            logger.warning("Structured MCQ output failed (%s); falling back to raw JSON", str(exc)[:200])
+            result = None
 
         if result is not None and getattr(result, "questions", None):
             return self._normalize_mcq([
@@ -296,7 +307,7 @@ class LearningService:
             "Option strings are the answer text only: no 'A)', 'Option A:' or similar labels. "
             "correct_answer is the letter of the right option."
         )
-        raw = self.gemini_service.run_raw(json_prompt)
+        raw = service.run_raw(json_prompt)
         cleaned = self._clean_json_response(raw if isinstance(raw, str) else str(raw))
         data = json.loads(cleaned)
         if isinstance(data, dict) and "questions" in data:
@@ -328,7 +339,7 @@ class LearningService:
             Dict with success status and mindmap data or error message
         """
         try:
-            mindmap_json = self.gemini_service.run_prompt(MINDMAP_GENERATION_PROMPT, topic)
+            mindmap_json = self.text_service.run_prompt(MINDMAP_GENERATION_PROMPT, topic)
             
             # Clean the response - remove any leading/trailing whitespace and common prefixes
             mindmap_json = mindmap_json.strip()
@@ -400,7 +411,7 @@ class LearningService:
             Dict with success status and flashcards data or error message
         """
         try:
-            flashcards_json = self.gemini_service.run_prompt(FLASHCARD_GENERATION_PROMPT, content)
+            flashcards_json = self.text_service.run_prompt(FLASHCARD_GENERATION_PROMPT, content)
             
             # Clean the response - remove any leading/trailing whitespace and common prefixes
             flashcards_json = flashcards_json.strip()

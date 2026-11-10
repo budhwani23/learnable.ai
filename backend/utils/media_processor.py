@@ -23,8 +23,11 @@ logger = logging.getLogger(__name__)
 class MediaProcessor:
     """Handles media file processing including transcription and summarization."""
     
-    def __init__(self, gemini_service: GeminiService):
+    def __init__(self, gemini_service: GeminiService, text_service: GeminiService | None = None):
+        # Gemini reads audio, video and image-only PDFs; summarising the resulting
+        # text can run on a text-only model (e.g. Cerebras) via text_service.
         self.gemini_service = gemini_service
+        self.text_service = text_service or gemini_service
     
     def validate_audio_file(self, audio_file: UploadedFile) -> Tuple[bool, str]:
         """Validate audio file format."""
@@ -117,7 +120,7 @@ class MediaProcessor:
             
             # Step 2: Summarize
             summary_message = self._create_summary_message(transcription)
-            summary = self.gemini_service.llm.invoke(summary_message).content
+            summary = self.text_service.llm.invoke(summary_message).content
             
             return summary, None
             
@@ -170,7 +173,7 @@ class MediaProcessor:
             # Step 2: Summarize
             logger.info("Starting video summarization...")
             summary_message = self._create_summary_message(transcription)
-            summary = self.gemini_service.llm.invoke(summary_message).content
+            summary = self.text_service.llm.invoke(summary_message).content
             logger.info(f"Video summarization completed, length: {len(summary)}")
             
             return summary, None
@@ -202,7 +205,7 @@ class MediaProcessor:
             if not text or not text.strip():
                 return None, "Could not find any readable text in this document."
             summary_message = self._create_summary_message(text)
-            summary = self.gemini_service.llm.invoke(summary_message).content
+            summary = self.text_service.llm.invoke(summary_message).content
             return summary, None
         except Exception as e:
             return None, f"Error processing document file: {str(e)}"
@@ -263,7 +266,7 @@ class MediaProcessor:
                 SystemMessage(content="You are a professional summarizer who creates concise, well-structured summaries. Focus on extracting key insights and main points."),
                 HumanMessage(content=text)
             ]
-            summary = self.gemini_service.llm.invoke(input_message).content
+            summary = self.text_service.llm.invoke(input_message).content
             return summary, None
         except Exception as e:
             return None, f"Error summarizing text: {str(e)}" 

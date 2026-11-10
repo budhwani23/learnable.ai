@@ -23,8 +23,12 @@ services:
     volumes:
       - ./presenton_data:/app_data
     environment:
-      LLM: google
-      GOOGLE_API_KEY: ${GOOGLE_API_KEY:?set GOOGLE_API_KEY in backend/.env}
+      # Slide text is written by qwen-3.8-27b on Cerebras (Presenton's built-in provider).
+      # Set PRESENTON_LLM=google to go back to Gemini (GOOGLE_API_KEY / PRESENTON_GOOGLE_MODEL).
+      LLM: ${PRESENTON_LLM:-cerebras}
+      CEREBRAS_API_KEY: ${CEREBRAS_API_KEY:-}
+      CEREBRAS_MODEL: ${CEREBRAS_MODEL:-qwen-3.8-27b}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       GOOGLE_MODEL: ${PRESENTON_GOOGLE_MODEL:-models/gemini-3.5-flash-lite}
       # Slide images go through the backend's /image-proxy endpoint, which generates
       # them with FLUX Klein on NVIDIA's API (NVIDIA_API_KEY in backend/.env).

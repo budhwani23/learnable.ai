@@ -210,13 +210,46 @@ class ExplainerPipeline:
             lambda: self.client.models.generate_content(model=MODEL, contents=contents, config=config),
             "Gemini request")
 
+    def _cerebras(self, prompt: str, *, json_mode: bool = False) -> str:
+        """Text-only prompt on Cerebras (OpenAI-compatible), e.g. qwen-3.8-27b."""
+        import requests
+
+        payload: Dict[str, Any] = {
+            "model": os.getenv("CEREBRAS_MODEL", "qwen-3.8-27b"),
+            "messages": [{"role": "user", "content": prompt}],
+            "max_completion_tokens": int(os.getenv("CEREBRAS_MAX_TOKENS", "16000")),
+        }
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
+
+        def call() -> str:
+            resp = requests.post(
+                f"{os.getenv('CEREBRAS_BASE_URL', 'https://api.cerebras.ai/v1')}/chat/completions",
+                headers={"Authorization": f"Bearer {os.environ['CEREBRAS_API_KEY']}"},
+                json=payload, timeout=int(os.getenv("CEREBRAS_TIMEOUT", "120")),
+            )
+            if resp.status_code >= 400:
+                raise RuntimeError(f"{resp.status_code} {resp.text[:300]}")
+            return (resp.json()["choices"][0]["message"].get("content") or "").strip()
+
+        return self._with_retry(call, "Cerebras request")
+
+    @staticmethod
+    def _use_cerebras(contents) -> bool:
+        # Only plain-text prompts go to Cerebras; image prompts (visual QA) stay on Gemini.
+        return isinstance(contents, str) and bool(os.getenv("CEREBRAS_API_KEY"))
+
     def _text(self, contents, **kw) -> str:
+        if self._use_cerebras(contents):
+            return self._cerebras(contents)
         return (self._generate(contents, **kw).text or "").strip()
 
     def _json(self, contents) -> Any:
         last_err: Optional[Exception] = None
         for _ in range(2):
             try:
+                if self._use_cerebras(contents):
+                    return _parse_json(self._cerebras(contents, json_mode=True))
                 return _parse_json(self._generate(contents, json_mode=True).text)
             except json.JSONDecodeError as e:
                 last_err = e
