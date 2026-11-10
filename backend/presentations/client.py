@@ -8,7 +8,9 @@ API used (from Presenton's FastAPI source):
   GET  /app_data/...                            exported files (auth required unless DISABLE_AUTH)
 `path` is an absolute path inside the container (under /app_data), not a URL.
 """
+import logging
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -18,9 +20,18 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+
 GENERATE_TIMEOUT = int(os.getenv("PRESENTON_TIMEOUT", "900"))  # seconds; generation is slow
 RATE_LIMIT_RETRIES = int(os.getenv("PRESENTON_RATE_LIMIT_RETRIES", "3"))
 RATE_LIMIT_WAIT = int(os.getenv("PRESENTON_RATE_LIMIT_WAIT", "45"))  # seconds, grows per attempt
+# The LLM occasionally streams a cut-off / malformed JSON slide; Presenton then fails the
+# whole deck with a 500 like "Unterminated string starting at: line 6 column 23".
+BAD_OUTPUT_RETRIES = int(os.getenv("PRESENTON_BAD_OUTPUT_RETRIES", "2"))
+_BAD_JSON = re.compile(
+    r"Unterminated string|Expecting (value|property name|',' delimiter|':' delimiter)|"
+    r"Extra data|Invalid control character|Invalid .escape|JSONDecodeError|"
+    r"did not return any content", re.I)
 
 TONES = ("default", "casual", "professional", "funny", "educational", "sales_pitch")
 VERBOSITIES = ("concise", "standard", "text-heavy")
@@ -28,6 +39,10 @@ VERBOSITIES = ("concise", "standard", "text-heavy")
 
 class PresentonError(Exception):
     """User-presentable failure talking to Presenton."""
+
+
+class PresentonBadOutput(PresentonError):
+    """Presenton failed because the LLM returned malformed JSON (worth retrying)."""
 
 
 def _base_url() -> str:
@@ -54,7 +69,10 @@ def _raise_for(resp: requests.Response) -> None:
         raise PresentonError("The presentation service rejected our credentials. Check PRESENTON_API_KEY.")
     if resp.status_code == 428:
         raise PresentonError("The presentation service needs its first-time setup (or DISABLE_AUTH for local dev).")
-    raise PresentonError(f"Presentation service error ({resp.status_code}): {detail or 'unknown error'}")
+    message = f"Presentation service error ({resp.status_code}): {detail or 'unknown error'}"
+    if resp.status_code >= 500 and _BAD_JSON.search(str(detail or "")):
+        raise PresentonBadOutput(message)
+    raise PresentonError(message)
 
 
 def _post(path: str, payload: Dict[str, Any], timeout: int) -> Dict[str, Any]:
@@ -103,7 +121,17 @@ def generate(content: str, *, instructions: Optional[str], n_slides: int, templa
         payload["instructions"] = instructions
     if language:
         payload["language"] = language
-    return _post("/api/v1/ppt/presentation/generate", payload, GENERATE_TIMEOUT)
+    for attempt in range(BAD_OUTPUT_RETRIES + 1):
+        try:
+            return _post("/api/v1/ppt/presentation/generate", payload, GENERATE_TIMEOUT)
+        except PresentonBadOutput as e:
+            if attempt == BAD_OUTPUT_RETRIES:
+                logger.error("Presenton kept returning malformed slides: %s", e)
+                raise PresentonError(
+                    "The AI returned an incomplete slide while writing your deck. "
+                    "Please try again in a moment.") from e
+            logger.warning("Presenton returned malformed slide JSON (%s); retrying (%s/%s)",
+                           e, attempt + 1, BAD_OUTPUT_RETRIES)
 
 
 def export(presentation_id: str, export_as: str) -> Dict[str, Any]:
