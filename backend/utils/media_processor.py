@@ -263,9 +263,11 @@ class MediaProcessor:
 
         if len(image_pages) > self.MAX_SCANNED_PDF_PAGES:
             if has_text:
-                logger.warning("PDF has %s image-only pages (limit %s); using its text layer only",
-                               len(image_pages), self.MAX_SCANNED_PDF_PAGES)
-                return "\n".join(pages)
+                raise Exception(
+                    f"This PDF has {len(image_pages)} scanned/image-only pages that need visual reading; "
+                    f"we can read up to {self.MAX_SCANNED_PDF_PAGES} scanned pages at a time. "
+                    "Split it into smaller PDFs or use one with selectable text."
+                )
             raise Exception(
                 f"This PDF has no selectable text (it looks scanned or image-based) and has "
                 f"{len(image_pages)} pages; we can read up to {self.MAX_SCANNED_PDF_PAGES} scanned "

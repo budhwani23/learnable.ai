@@ -132,6 +132,23 @@ class ScannedPdfTests(SimpleTestCase):
         self.assertIn("has 3 pages; we can read up to 2 scanned pages", error)
 
     @mock.patch.dict(os.environ, WITH_CEREBRAS)
+    def test_too_many_scanned_pages_in_mixed_pdf_gives_a_clear_error(self):
+        path = self.pdf(5)
+        layer = [
+            "Page one has plenty of selectable text for this threshold.",
+            "",
+            "",
+            "Page four also has enough selectable text in the layer.",
+            "",
+        ]
+        with mock.patch.object(MediaProcessor, "_pdf_text_layer", return_value=layer), \
+                mock.patch.object(MediaProcessor, "MAX_SCANNED_PDF_PAGES", 2), \
+                mock.patch("utils.media_processor.cerebras.chat") as chat:
+            with self.assertRaisesMessage(Exception, "has 3 scanned/image-only pages"):
+                self.processor._extract_text_from_document(path, ".pdf")
+        chat.assert_not_called()
+
+    @mock.patch.dict(os.environ, WITH_CEREBRAS)
     def test_failed_batches(self):
         path = self.pdf(5)
         replies = iter(["ok text", cerebras.CerebrasError("HTTP 500")])
