@@ -128,3 +128,35 @@ class EndpointTests(SimpleTestCase):
         r = self.post({"prompt": "x"})
         self.assertEqual(r.status_code, 400)
         self.assertEqual(r.json()["error"]["type"], "content_policy_violation")
+
+
+class PresentonRetryTests(SimpleTestCase):
+    """Presenton fails a whole deck when the LLM streams a cut-off slide; we retry it."""
+
+    BAD = FakeResponse({"detail": "Unterminated string starting at: line 6 column 23 (char 73)"}, 500)
+    GOOD = FakeResponse({"presentation_id": "p1", "path": "/app_data/exports/p1.pptx"})
+
+    def generate(self, responses):
+        from presentations import client
+        with mock.patch.object(client.requests, "post", side_effect=responses) as post, \
+                mock.patch.object(client.time, "sleep"):
+            try:
+                return client.generate("text", instructions=None, n_slides=5, template="general",
+                                       tone="educational"), post.call_count
+            except client.PresentonError as e:
+                return e, post.call_count
+
+    def test_malformed_slide_json_is_retried(self):
+        result, calls = self.generate([self.BAD, self.GOOD])
+        self.assertEqual(result["presentation_id"], "p1")
+        self.assertEqual(calls, 2)
+
+    def test_gives_up_with_a_friendly_message(self):
+        result, calls = self.generate([self.BAD, self.BAD, self.BAD])
+        self.assertEqual(calls, 3)
+        self.assertIn("incomplete slide", str(result))
+
+    def test_other_server_errors_are_not_retried(self):
+        result, calls = self.generate([FakeResponse({"detail": "Template not found"}, 500)])
+        self.assertEqual(calls, 1)
+        self.assertIn("Template not found", str(result))
