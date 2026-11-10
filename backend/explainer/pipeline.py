@@ -37,6 +37,8 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
+from core import cerebras
+
 from .code_safety import check_scene_code
 
 load_dotenv()
@@ -210,34 +212,19 @@ class ExplainerPipeline:
             lambda: self.client.models.generate_content(model=MODEL, contents=contents, config=config),
             "Gemini request")
 
-    def _cerebras(self, prompt: str, *, json_mode: bool = False) -> str:
-        """Text-only prompt on Cerebras (OpenAI-compatible), e.g. qwen-3.8-27b."""
-        import requests
-
-        payload: Dict[str, Any] = {
-            "model": os.getenv("CEREBRAS_MODEL", "qwen-3.8-27b"),
-            "messages": [{"role": "user", "content": prompt}],
-            "max_completion_tokens": int(os.getenv("CEREBRAS_MAX_TOKENS", "16000")),
-        }
-        if json_mode:
-            payload["response_format"] = {"type": "json_object"}
-
-        def call() -> str:
-            resp = requests.post(
-                f"{os.getenv('CEREBRAS_BASE_URL', 'https://api.cerebras.ai/v1')}/chat/completions",
-                headers={"Authorization": f"Bearer {os.environ['CEREBRAS_API_KEY']}"},
-                json=payload, timeout=int(os.getenv("CEREBRAS_TIMEOUT", "120")),
-            )
-            if resp.status_code >= 400:
-                raise RuntimeError(f"{resp.status_code} {resp.text[:300]}")
-            return (resp.json()["choices"][0]["message"].get("content") or "").strip()
-
-        return self._with_retry(call, "Cerebras request")
+    def _cerebras(self, contents, *, json_mode: bool = False) -> str:
+        """Prompt on Cerebras (e.g. qwen-3.8-27b): text, or OpenAI-style text + image_url parts."""
+        return self._with_retry(
+            lambda: cerebras.chat(contents, json_mode=json_mode, attempts=1), "Cerebras request")
 
     @staticmethod
     def _use_cerebras(contents) -> bool:
-        # Only plain-text prompts go to Cerebras; image prompts (visual QA) stay on Gemini.
-        return isinstance(contents, str) and bool(os.getenv("CEREBRAS_API_KEY"))
+        # Plain-text prompts and OpenAI-style content lists (text + image_url parts, used by
+        # the visual QA) go to Cerebras when it is configured; Gemini parts stay on Gemini.
+        if not cerebras.is_configured():
+            return False
+        return isinstance(contents, str) or (
+            isinstance(contents, list) and bool(contents) and isinstance(contents[0], dict))
 
     def _text(self, contents, **kw) -> str:
         if self._use_cerebras(contents):
@@ -640,7 +627,7 @@ Return ONLY the corrected `class GeneratedScene(NarratedScene):` — no fences, 
         ]
 
     def visual_critique(self, brief: str, frames: List[str]) -> Dict[str, Any]:
-        parts = [types.Part.from_text(text=f"""You are an exacting art director and math-
+        prompt = f"""You are an exacting art director and math-
 communication expert reviewing frames from a 3Blue1Brown-style explainer on:
 "{brief[:1500]}"
 Here are {len(frames)} frames sampled in order across the video. Be harsh and specific.
@@ -656,10 +643,16 @@ Return ONLY JSON:
   "score": 0,
   "verdict": "good" | "revise",
   "issues": ["specific, actionable visual fix referencing the frame number"]
-}}""")]
+}}"""
+        images = []
         for fp in frames:
             with open(fp, "rb") as f:
-                parts.append(types.Part.from_bytes(data=f.read(), mime_type="image/png"))
+                images.append(f.read())
+        if cerebras.is_configured():
+            # qwen on Cerebras reads images as OpenAI-style image_url parts.
+            return self._json(cerebras.text_and_images(prompt, [(img, "image/png") for img in images]))
+        parts = [types.Part.from_text(text=prompt)]
+        parts += [types.Part.from_bytes(data=img, mime_type="image/png") for img in images]
         return self._json([types.Content(role="user", parts=parts)])
 
     def revise_scene_code(self, scene_code: str, issues: List[str]) -> str:
