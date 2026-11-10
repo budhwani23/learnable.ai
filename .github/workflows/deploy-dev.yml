@@ -121,6 +121,7 @@ jobs:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
           PRESENTON_IMAGE_PROXY_KEY: ${{ secrets.PRESENTON_IMAGE_PROXY_KEY }}
         run: |
           host="${APP_URL#https://}"; host="${host%%/*}"
@@ -142,6 +143,9 @@ jobs:
             echo "GOOGLE_API_KEY=$GOOGLE_API_KEY"
             echo "GOOGLE_OAUTH_CLIENT_ID=$GOOGLE_OAUTH_CLIENT_ID"
             echo "NVIDIA_API_KEY=$NVIDIA_API_KEY"
+            # Text generation (learning tools, explainer scripts, slide text) on Cerebras.
+            echo "CEREBRAS_API_KEY=$CEREBRAS_API_KEY"
+            echo "CEREBRAS_MODEL=qwen-3.8-27b"
             echo "PRESENTON_IMAGE_PROXY_KEY=$PRESENTON_IMAGE_PROXY_KEY"
             echo "GIT_SHA=$GITHUB_SHA"
           } > "$env_file"

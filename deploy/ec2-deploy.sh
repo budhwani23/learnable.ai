@@ -41,10 +41,20 @@ mv "$STATE_DIR/app.env.new" "$STATE_DIR/app.env"
 env_get() { grep -E "^$1=" "$STATE_DIR/app.env" | tail -1 | cut -d= -f2- || true; }
 google_key="$(env_get GOOGLE_API_KEY)"
 proxy_key="$(env_get PRESENTON_IMAGE_PROXY_KEY)"
-cat > "$STATE_DIR/presenton.env.new" <<EOF
-LLM=google
+cerebras_key="$(env_get CEREBRAS_API_KEY)"
+if [ -n "$cerebras_key" ]; then
+  # Slide text: qwen on Cerebras (Presenton's built-in provider).
+  llm_settings="LLM=cerebras
+CEREBRAS_API_KEY=$cerebras_key
+CEREBRAS_MODEL=$(env_get CEREBRAS_MODEL)"
+else
+  echo "CEREBRAS_API_KEY not set: slide text uses Gemini"
+  llm_settings="LLM=google
 GOOGLE_API_KEY=$google_key
-GOOGLE_MODEL=models/gemini-3.5-flash-lite
+GOOGLE_MODEL=models/gemini-3.5-flash-lite"
+fi
+cat > "$STATE_DIR/presenton.env.new" <<EOF
+$(printf '%b' "$llm_settings")
 PRESENTON_PUBLIC_URL=http://presenton
 PRESENTON_COMMUNITY_ENABLED=false
 DISABLE_AUTH=true
@@ -61,6 +71,12 @@ else
   echo "NVIDIA_API_KEY or PRESENTON_IMAGE_PROXY_KEY not set: slide images use placeholders"
   echo "DISABLE_IMAGE_GENERATION=true" >> "$STATE_DIR/presenton.env.new"
 fi
+# Free disk before pulling: drop images no container uses. The running app image
+# (the rollback target) and Presenton's image are in use, so they stay.
+echo "Disk before cleanup: $(df -h / | awk 'NR==2 {print $4 " free"}')"
+docker image prune -af >/dev/null 2>&1 || true
+docker builder prune -af >/dev/null 2>&1 || true
+echo "Disk after cleanup: $(df -h / | awk 'NR==2 {print $4 " free"}')"
 docker pull -q "$PRESENTON_IMAGE" >/dev/null
 want="$(cat "$STATE_DIR/presenton.env.new" | sha256sum | cut -c1-16)-$(docker image inspect -f '{{.Id}}' "$PRESENTON_IMAGE" | cut -c8-23)"
 have="$(docker inspect -f '{{index .Config.Labels "learnable.config"}}' presenton 2>/dev/null || true)"
@@ -69,6 +85,22 @@ mv "$STATE_DIR/presenton.env.new" "$STATE_DIR/presenton.env"
 if [ "$want" != "$have" ] || [ "$running" != "true" ]; then
   echo "Starting Presenton"
   docker rm -f presenton >/dev/null 2>&1 || true
+  # Presenton saves provider settings on first boot and then prefers them over its
+  # environment. Here presenton.env is the source of truth, so clear the saved copy.
+  docker run --rm -v "$DATA_DIR/presenton:/app_data" --entrypoint python3 "$PRESENTON_IMAGE" -c '
+import os, sqlite3
+db = "/app_data/fastapi.db"
+if os.path.exists(db):
+    con = sqlite3.connect(db)
+    try:
+        con.execute("DELETE FROM provider_settings"); con.commit()
+    except sqlite3.OperationalError:
+        pass
+for f in ("userConfig.json", "userConfig.json.bak"):
+    p = os.path.join("/app_data", f)
+    if os.path.exists(p):
+        os.remove(p)
+' || echo "Could not reset saved Presenton settings"
   # Not published on the host: only the app container can reach it (no auth needed).
   docker run -d --name presenton --network "$NETWORK" --restart unless-stopped \
     --env-file "$STATE_DIR/presenton.env" --label "learnable.config=$want" \
