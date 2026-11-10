@@ -36,6 +36,11 @@ const STAGE_LABELS: Record<string, string> = {
   failed: "Failed",
 };
 
+/**
+ * Slide deck tab. Idle/failed: slide count, template, tone and focus settings plus a Create button
+ * (disabled without content or slides credits). In progress: stage and progress bar. Finished: PDF
+ * preview when available, PPTX/PDF downloads and New presentation.
+ */
 const PresentationPanel: React.FC<PresentationPanelProps> = ({
   presentation,
   hasContent,

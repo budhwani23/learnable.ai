@@ -18,6 +18,10 @@ import { useAuth } from "@/hooks/useAuth";
 
 const queryClient = new QueryClient();
 
+/**
+ * Root component: sets up React Query, tooltips, toasters and the router. Renders nothing until the
+ * auth state has loaded; /input and /admin are wrapped in ProtectedRoute (admin-only for /admin).
+ */
 const App = () => {
   const { isAuthenticated, loading } = useAuth();
   if (loading) return null;

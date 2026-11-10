@@ -56,9 +56,15 @@ type InputSectionProps = ReturnType<typeof useFileUpload> &
   { results: ProcessingResults | null };
 
 // The URL tab works from YouTube transcripts; other links would just be summarised as text.
+/** True when `value` (trimmed) is an http(s) YouTube watch, shorts, live or youtu.be link. */
 const isValidUrl = (value: string) =>
   /^https?:\/\/(www\.|m\.)?(youtube\.com\/(watch\?|shorts\/|live\/)|youtu\.be\/)\S+/i.test(value.trim());
 
+/**
+ * Main "Create Learning Resources" section: text, file or YouTube URL input on one side and resource
+ * tabs (summary, mindmap, quiz, flashcards, explainer video, slides) on the other, each generate
+ * button gated by the user's remaining credits for that resource type.
+ */
 const InputSection: React.FC<InputSectionProps> = ({
   uploadedFiles,
   isDragOver,
@@ -90,7 +96,12 @@ const InputSection: React.FC<InputSectionProps> = ({
   const presentation = usePresentation();
 
   // Start an AI explainer-video job from whichever input method is active
+  /**
+   * Start an explainer-video job using the active input (first audio/video/document file, the text,
+   * or the URL) plus the optional focus prompt.
+   */
   const handleGenerateVideo = (focus: string) => {
+    /** First uploaded file whose extension is in `exts`. */
     const findFile = (exts: string[]) => uploadedFiles.find(f => exts.includes(f.extension))?.file;
     const useFiles = inputMethod === "file";
     explainer.start({
@@ -103,7 +114,12 @@ const InputSection: React.FC<InputSectionProps> = ({
   };
 
   // Start a slide-deck job from whichever input method is active
+  /**
+   * Start a slide-deck job using the active input (first audio/video/document file, the text, or the
+   * URL) and the chosen focus, slide count, template and tone.
+   */
   const handleGeneratePresentation = ({ focus, nSlides, template, tone }: PresentationSettings) => {
+    /** First uploaded file whose extension is in `exts`. */
     const findFile = (exts: string[]) => uploadedFiles.find(f => exts.includes(f.extension))?.file;
     const useFiles = inputMethod === "file";
     presentation.start({
@@ -122,6 +138,10 @@ const InputSection: React.FC<InputSectionProps> = ({
   const isProcessing = processingStatus.state === 'processing' || processingStatus.state === 'uploading';
 
   // Handle content generation based on active tab and input method
+  /**
+   * Run the summary, mindmap, quiz or flashcards mutation for the active tab with the current input.
+   * Shows a toast instead when the user is out of credits for that tab or no input was given.
+   */
   const handleGenerateContent = () => {
     if (noCredits) {
       toast({
@@ -203,6 +223,7 @@ const InputSection: React.FC<InputSectionProps> = ({
   };
 
   // Check if current input method has content
+  /** True when the active input method has usable input (non-empty text, at least one file, or a valid YouTube URL). */
   const hasContent = () => {
     switch (inputMethod) {
       case "text":
@@ -216,6 +237,7 @@ const InputSection: React.FC<InputSectionProps> = ({
     }
   };
 
+  /** True when a result already exists for the active text-resource tab (summary, mindmap, quiz or flashcards). */
   const hasResultsForTab = () => {
     if (!results) return false;
     switch (activeTab) {
@@ -233,6 +255,7 @@ const InputSection: React.FC<InputSectionProps> = ({
   };
 
   // Get loading state for current tab
+  /** Whether the mutation for the active text-resource tab is pending. */
   const getLoadingState = () => {
     switch (activeTab) {
       case "summary":
@@ -247,6 +270,10 @@ const InputSection: React.FC<InputSectionProps> = ({
         return false;
     }
   };
+      /**
+       * Clear files, text and URL, go back to the summary tab, reset video/slide jobs that are not still
+       * running, and blank the existing text results.
+       */
       const handleClearAll = () => {
         clearFiles();                // Clear uploaded files
         setTextInput("");            // Clear text input

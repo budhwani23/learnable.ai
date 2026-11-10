@@ -33,6 +33,7 @@ TONES = [
 
 
 class PresentationInput(Schema):
+    """Optional text input for a slide deck job: source, focus, slide count, template and tone."""
     text: Optional[str] = None    # free text, topic, or a YouTube URL
     focus: Optional[str] = None
     n_slides: int = 8
@@ -41,6 +42,7 @@ class PresentationInput(Schema):
 
 
 def _owned_job(request, job_id: str) -> dict:
+    """Return the presentation job if it belongs to the signed-in user; otherwise raise Http404."""
     job = store.get(job_id)
     if not job or job.get("user_id") != request.auth.id:
         raise Http404("Job not found")
@@ -92,11 +94,13 @@ def create_presentation_job(
 
 @router.get("/jobs")
 def list_presentation_jobs(request):
+    """List the signed-in user's presentation jobs (public view)."""
     return {"success": True, "jobs": [store.public_view(j) for j in store.list(request.auth.id)]}
 
 
 @router.get("/jobs/{job_id}")
 def get_presentation_job(request, job_id: str):
+    """Return one of the signed-in user's presentation jobs, or 404."""
     return {"success": True, "job": store.public_view(_owned_job(request, job_id))}
 
 

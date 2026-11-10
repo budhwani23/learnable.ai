@@ -12,11 +12,14 @@ from users.services import set_status
 
 
 def hdr(user):
+    """Return a Bearer Authorization header kwarg for user."""
     return {"HTTP_AUTHORIZATION": f"Bearer {create_tokens(user.id, user.username)[0]}"}
 
 
 class AdminPanelTests(TestCase):
+    """Admin panel API: permissions, waitlist moderation, user management, credits and audit log."""
     def setUp(self):
+        """Create a superuser, a staff admin, a regular user and three pending waitlist users."""
         self.client = Client()
         self.root = User.objects.create_superuser("root", "root@example.com", "x" * 10)
         self.staff = User.objects.create_user("mod", password="x" * 10, is_staff=True)
@@ -26,9 +29,11 @@ class AdminPanelTests(TestCase):
             set_status(u, UserProfile.STATUS_PENDING)
 
     def post(self, url, body, as_user):
+        """POST a JSON body to url authenticated as as_user."""
         return self.client.post(url, data=json.dumps(body), content_type="application/json", **hdr(as_user))
 
     def test_every_admin_endpoint_rejects_non_admins(self):
+        """Every admin endpoint returns 401 anonymously and 403 admin_only for non-admins, changing nothing."""
         uid = self.user.id
         gets = ["/api/admin/stats", "/api/admin/users", f"/api/admin/users/{uid}", "/api/admin/waitlist",
                 "/api/admin/usage", "/api/admin/audit"]
@@ -52,6 +57,7 @@ class AdminPanelTests(TestCase):
         self.assertFalse(AuditLog.objects.exists())
 
     def test_waitlist_approve_reject_and_bulk(self):
+        """Admins approve and bulk-reject waitlist users, skipping non-pending ones, with audit entries."""
         r = self.client.get("/api/admin/waitlist", **hdr(self.staff))
         self.assertEqual(r.json()["total"], 3)
         a, b, c = self.waiting
@@ -69,6 +75,7 @@ class AdminPanelTests(TestCase):
         self.assertEqual(AuditLog.objects.get(target=b).details["via"], "waitlist")
 
     def test_user_management_and_credit_top_up(self):
+        """Admins filter users, top up credits, change role and active state, and see stats, usage and audit."""
         r = self.client.get("/api/admin/users?q=alice", **hdr(self.staff))
         self.assertEqual([u["username"] for u in r.json()["users"]], ["alice"])
         r = self.client.get("/api/admin/users?status=pending", **hdr(self.staff))
@@ -107,6 +114,7 @@ class AdminPanelTests(TestCase):
         self.assertEqual(audit["total"], 3)
 
     def test_audit_ip_ignores_forged_forwarded_for(self):
+        """Audit IPs use REMOTE_ADDR unless TRUSTED_PROXY_COUNT trusts X-Forwarded-For hops."""
         from django.test import override_settings
         url, body = f"/api/admin/users/{self.user.id}/role", {"role": "teacher"}
         self.client.post(url, data=json.dumps(body), content_type="application/json",
@@ -118,6 +126,7 @@ class AdminPanelTests(TestCase):
         self.assertEqual(AuditLog.objects.latest("id").ip_address, "203.0.113.9")
 
     def test_admin_safety_rules(self):
+        """No self lock-out, staff cannot manage admins, superusers can, and deactivated admins lose access."""
         # No self lock-out.
         r = self.post(f"/api/admin/users/{self.staff.id}/active", {"active": False}, self.staff)
         self.assertEqual(r.status_code, 400)

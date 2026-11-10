@@ -35,6 +35,7 @@ const Waitlist = () => {
           body: "Thanks for signing up! We're letting people in gradually. An administrator will approve your account soon, and this page will open the app as soon as they do." };
   const Icon = copy.icon;
 
+  /** Re-fetch the current user's status on demand, showing a spinner while it runs. */
   const checkNow = async () => {
     setChecking(true);
     try { await refreshUser(); } finally { setChecking(false); }

@@ -15,10 +15,12 @@ from users.services import set_status
 
 
 def auth(user):
+    """Return a Bearer Authorization header kwarg for user."""
     return {"HTTP_AUTHORIZATION": f"Bearer {create_tokens(user.id, user.username)[0]}"}
 
 
 def post(client, url, body, user=None, token=None):
+    """POST a JSON body to url, authenticated as user or with a raw token."""
     headers = auth(user) if user else ({"HTTP_AUTHORIZATION": f"Bearer {token}"} if token else {})
     return client.post(url, data=json.dumps(body), content_type="application/json", **headers)
 
@@ -27,14 +29,18 @@ MINDMAP_OK = {"success": True, "mindmap": {"name": "Photosynthesis", "children":
 
 
 class WaitlistTests(TestCase):
+    """Launch waitlist gating and lockout of rejected, banned and deactivated accounts."""
     def setUp(self):
+        """Create a fresh test client."""
         self.client = Client()
 
     def register(self, username="newbie"):
+        """Self-register a user through the API and return the response."""
         return post(self.client, "/api/users/auth/register",
                     {"username": username, "email": f"{username}@example.com", "password": "s3cret-pass"})
 
     def test_new_signup_lands_on_waitlist_and_is_blocked_from_the_app(self):
+        """New sign-ups are pending, get 403 'waitlist' from the app, and gain access once approved."""
         r = self.register()
         self.assertEqual(r.status_code, 200)
         token = r.json()["access"]
@@ -61,16 +67,19 @@ class WaitlistTests(TestCase):
 
     @override_settings(WAITLIST_ENABLED=False)
     def test_waitlist_can_be_switched_off(self):
+        """With WAITLIST_ENABLED off, new sign-ups are approved immediately."""
         token = self.register("open1").json()["access"]
         me = self.client.get("/api/users/auth/me", HTTP_AUTHORIZATION=f"Bearer {token}").json()
         self.assertEqual(me["status"], "approved")
 
     def test_existing_and_admin_created_users_are_approved(self):
+        """Users created outside self sign-up start out approved."""
         # Users not created through self sign-up (pre-launch accounts, LMS, admins) skip the waitlist.
         u = User.objects.create_user("legacy", password="x" * 10)
         self.assertEqual(u.profile.status, UserProfile.STATUS_APPROVED)
 
     def test_rejected_banned_and_deactivated_users_are_locked_out(self):
+        """Banned, rejected and deactivated users cannot log in, refresh or use the API."""
         u = User.objects.create_user("bad", password="s3cret-pass")
         token = create_tokens(u.id, u.username)
         set_status(u, UserProfile.STATUS_BANNED, "spam")
@@ -98,17 +107,22 @@ class WaitlistTests(TestCase):
 
 
 class CreditLimitTests(TestCase):
+    """Per-resource credit limits: consumption, 402 when exhausted, refunds and admin top-ups."""
     def setUp(self):
+        """Create a client and an approved learner."""
         self.client = Client()
         self.user = User.objects.create_user("learner", password="x" * 10)
 
     def me(self):
+        """Return the learner's /auth/me payload."""
         return self.client.get("/api/users/auth/me", **auth(self.user)).json()
 
     def mindmap(self):
+        """Request a mindmap generation as the learner."""
         return post(self.client, "/api/learning/generate-mindmap", {"topic": "Photosynthesis"}, self.user)
 
     def test_three_credits_per_resource_type_then_a_clean_402(self):
+        """Each resource type allows 3 generations, then returns 402 out_of_credits without calling the AI."""
         with mock.patch("learning.api.learning_service.generate_mindmap", return_value=MINDMAP_OK) as gen:
             for _ in range(3):
                 self.assertEqual(self.mindmap().status_code, 200)
@@ -125,6 +139,7 @@ class CreditLimitTests(TestCase):
         self.assertEqual(credits_now["quiz"]["remaining"], 3)
 
     def test_failed_generation_gives_the_credit_back(self):
+        """A failed or crashing generation refunds the credit."""
         with mock.patch("learning.api.learning_service.generate_mindmap",
                         return_value={"success": False, "error": "Model failure"}):
             r = self.mindmap()
@@ -137,11 +152,13 @@ class CreditLimitTests(TestCase):
         self.assertEqual(self.me()["credits"]["mindmap"]["remaining"], 3)
 
     def test_bad_input_does_not_charge(self):
+        """Invalid input is rejected with 400 without consuming a credit."""
         r = self.client.post("/api/learning/summarize-content", {"data": "{}"}, **auth(self.user))
         self.assertEqual(r.status_code, 400)
         self.assertEqual(self.me()["credits"]["summary"]["remaining"], 3)
 
     def test_video_and_slides_jobs_charge_on_start_and_refund_on_failure(self):
+        """Video and slides jobs charge on start, reject missing input free, and refund a failed job exactly once."""
         from explainer.jobs import explainer_store
         from presentations.service import store as slides_store
         tmp = Path(tempfile.mkdtemp())
@@ -186,6 +203,7 @@ class CreditLimitTests(TestCase):
         self.assertEqual(self.me()["credits"]["slides"]["remaining"], 3)
 
     def test_admin_top_up_and_concurrency_safe_counter(self):
+        """consume raises OutOfCredits at the limit; grant, set_remaining and reset adjust the counters."""
         for _ in range(3):
             credits.consume(self.user, "quiz")
         with self.assertRaises(credits.OutOfCredits):

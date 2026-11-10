@@ -13,6 +13,7 @@ class AccountBlocked(Exception):
     """
 
     def __init__(self, code: str, detail: str):
+        """Keep a machine-readable `code` and a user-facing `detail` message."""
         self.code = code
         self.detail = detail
         super().__init__(detail)
@@ -52,11 +53,17 @@ class JWTAuth(HttpBearer):
     """
 
     def __init__(self, allow_unapproved: bool = False, require_staff: bool = False):
+        """Configure the scheme: let waitlisted users through and/or require a staff account."""
         super().__init__()
         self.allow_unapproved = allow_unapproved
         self.require_staff = require_staff
 
     def authenticate(self, request, token: str) -> Optional[User]:
+        """
+        Decode an access token and return its User, or None if the token or user is invalid.
+        Raises AccountBlocked for deactivated accounts, unapproved accounts (unless
+        `allow_unapproved`) and non-staff users when `require_staff` is set.
+        """
         try:
             payload = decode_token(token)
             if payload.get("type") != "access":

@@ -50,6 +50,10 @@ export class HttpError extends Error {
   constructor(message: string, public status: number) { super(message); }
 }
 
+/**
+ * Build an HttpError from a failed response, using the body's `error`/`detail` string when present
+ * and a friendly per-status fallback (401, 403, 404, other) otherwise.
+ */
 async function httpError(res: Response): Promise<HttpError> {
   let reason = '';
   try {
@@ -64,10 +68,15 @@ async function httpError(res: Response): Promise<HttpError> {
   return new HttpError(reason || fallback, res.status);
 }
 
+/**
+ * HTTP client for the backend: stores JWT access/refresh tokens in localStorage, attaches them to
+ * authenticated calls, retries once after a token refresh on 401, and wraps every API endpoint.
+ */
 class ApiClient {
   private baseUrl: string;
   private timeout: number;
 
+  /** Read the base URL and timeout from API_CONFIG. */
   constructor() {
     this.baseUrl = API_CONFIG.BASE_URL;
     this.timeout = API_CONFIG.TIMEOUT;
@@ -79,21 +88,30 @@ class ApiClient {
   private ACCESS_KEY = 'auth_access';
   private REFRESH_KEY = 'auth_refresh';
 
+  /** Stored access token, or "" when signed out. */
   private getAccess() { return localStorage.getItem(this.ACCESS_KEY) || ''; }
+  /** Stored refresh token, or "" when signed out. */
   private getRefresh() { return localStorage.getItem(this.REFRESH_KEY) || ''; }
+  /** Save a new access/refresh token pair to localStorage. */
   private setTokens(access: string, refresh: string) {
     localStorage.setItem(this.ACCESS_KEY, access);
     localStorage.setItem(this.REFRESH_KEY, refresh);
   }
+  /** Remove both tokens from localStorage. */
   private clearTokens() {
     localStorage.removeItem(this.ACCESS_KEY);
     localStorage.removeItem(this.REFRESH_KEY);
   }
+  /** `Authorization: Bearer <access>` header, or no headers when there is no access token. */
   private buildAuthHeaders(): HeadersInit {
     const access = this.getAccess();
     return access ? { Authorization: `Bearer ${access}` } : {};
   }
 
+  /**
+   * Exchange the refresh token for a new token pair and store it.
+   * @returns true on success; false when there is no refresh token or the refresh fails.
+   */
   private async refreshTokensOnce(): Promise<boolean> {
     const refresh = this.getRefresh();
     if (!refresh) return false;
@@ -115,6 +133,11 @@ class ApiClient {
     }
   }
 
+  /**
+   * Send a JSON request and parse the JSON response, throwing HttpError on non-2xx or an Error when the
+   * body has an `error` field. With `auth`, sends the bearer token and on 401 refreshes the tokens and
+   * retries once, clearing the tokens if the refresh fails.
+   */
   private async makeRequest<T>(
     endpoint: string,
     options: RequestInit = {},
@@ -132,6 +155,7 @@ class ApiClient {
 
     const finalOptions = { ...defaultOptions, ...options };
 
+    /** Perform the request once and return the parsed body; throws on HTTP errors or an `error` field. */
     const doFetch = async (): Promise<T> => {
       const response = await fetch(url, finalOptions);
       if (!response.ok) {
@@ -171,6 +195,11 @@ class ApiClient {
     }
   }
 
+  /**
+   * POST multipart form data via XMLHttpRequest (5-minute timeout) so upload progress can be reported
+   * through `onProgress` (0-100). Rejects with the server's `error`/`detail` message, or a friendly
+   * message on network errors, timeouts and aborts. Does not retry after a token refresh.
+   */
   private async makeFileRequest<T>(
     endpoint: string,
     formData: FormData,
@@ -258,6 +287,7 @@ class ApiClient {
     }
   }
 
+  /** Normalise any thrown value into an Error (strings become the message; anything else is a network error). */
   private handleError(error: any): Error {
     if (error instanceof Error) {
       return error;
@@ -287,14 +317,17 @@ class ApiClient {
     return data as { access: string; refresh: string };
   }
 
+  /** Sign in and store the returned tokens; optionally sends the role the user is signing in as. */
   async login(username: string, password: string, role?: Role) {
     return this.authPost(API_ENDPOINTS.AUTH_LOGIN, { username, password, role }, 'Invalid credentials');
   }
 
+  /** Create an account with the given role and store the returned tokens. */
   async register(username: string, email: string, password: string, role: Role) {
     return this.authPost(API_ENDPOINTS.AUTH_REGISTER, { username, email, password, role }, 'Registration failed');
   }
 
+  /** Fetch the signed-in user's profile (role, approval status and credits). */
   async me() {
     return this.makeRequest<Me>(
       API_ENDPOINTS.AUTH_ME,
@@ -304,6 +337,7 @@ class ApiClient {
   }
 
   // NEW: Generic authorized request helper using access token in localStorage
+  /** Authenticated JSON request to any API route; `payload` is sent as the body for non-GET methods. */
   async authorizedRequest<T = any>(
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     route: string,
@@ -319,6 +353,7 @@ class ApiClient {
   // =====================
   // Health check
   // =====================
+  /** Call the backend health-check endpoint (no auth). */
   async healthCheck(): Promise<ApiResponse> {
     return this.makeRequest<ApiResponse>(API_ENDPOINTS.HEALTH_CHECK);
   }
@@ -326,6 +361,7 @@ class ApiClient {
   // =====================
   // Text summarization (AUTH)
   // =====================
+  /** Summarise text content (JSON body, authenticated). */
   async summarizeText(input: SummarizeTextInput): Promise<SummarizeTextOutput> {
     return this.makeRequest<SummarizeTextOutput>(
       API_ENDPOINTS.SUMMARIZE_CONTENT,
@@ -338,6 +374,7 @@ class ApiClient {
   }
 
   // File-based summarization (AUTH)
+  /** Upload a single file for summarisation, reporting upload progress. */
   async summarizeFile(
     file: File,
     onProgress?: (progress: number) => void
@@ -354,6 +391,7 @@ class ApiClient {
   }
 
   // Multimedia summarization (AUTH)
+  /** Summarise any combination of audio, video, document and text in one multipart upload. */
   async summarizeMultimedia(
     audioFile?: File,
     videoFile?: File,
@@ -385,6 +423,7 @@ class ApiClient {
   }
 
   // Mindmap generation (text only) (AUTH)
+  /** Generate a mindmap from text input (JSON body, authenticated). */
   async generateMindmap(input: MindmapInput): Promise<MindmapOutput> {
     return this.makeRequest<MindmapOutput>(
       API_ENDPOINTS.GENERATE_MINDMAP,
@@ -397,6 +436,7 @@ class ApiClient {
   }
 
   // Mindmap generation (multimedia) (AUTH)
+  /** Generate a mindmap from uploaded audio/video/document files and/or a topic or text. */
   async generateMindmapMultimedia(
     audioFile?: File,
     videoFile?: File,
@@ -431,6 +471,7 @@ class ApiClient {
   }
 
   // MCQ Quiz generation (text only) (AUTH)
+  /** Generate a multiple-choice quiz from text input (JSON body, authenticated). */
   async generateMCQQuiz(input: MCQQuizInput): Promise<MCQQuizOutput> {
     console.log('API Client - generateMCQQuiz input:', input);
     console.log('API Client - JSON body:', JSON.stringify(input));
@@ -445,6 +486,7 @@ class ApiClient {
   }
 
   // MCQ Quiz generation (multimedia) (AUTH)
+  /** Generate a multiple-choice quiz of `numQuestions` (default 10) from uploaded files and/or text. */
   async generateMCQQuizMultimedia(
     audioFile?: File,
     videoFile?: File,
@@ -479,6 +521,7 @@ class ApiClient {
   }
 
   // Flashcard generation (text only) (AUTH)
+  /** Generate flashcards from text input (JSON body, authenticated). */
   async generateFlashcards(input: FlashcardInput): Promise<FlashcardOutput> {
     return this.makeRequest<FlashcardOutput>(
       API_ENDPOINTS.GENERATE_FLASHCARDS,
@@ -491,6 +534,7 @@ class ApiClient {
   }
 
   // Flashcard generation (multimedia) (AUTH)
+  /** Generate flashcards from uploaded audio/video/document files and/or text. */
   async generateFlashcardsMultimedia(
     audioFile?: File,
     videoFile?: File,
@@ -533,6 +577,10 @@ class ApiClient {
   // =====================
   // AI explainer video (AUTH) — long-running background job
   // =====================
+  /**
+   * Start a background explainer-video job from the given files/text and optional focus.
+   * @returns The created job (poll it with getExplainerJob).
+   */
   async startExplainerVideo(
     audioFile?: File,
     videoFile?: File,
@@ -559,6 +607,7 @@ class ApiClient {
     return res.job;
   }
 
+  /** Fetch the current status of an explainer-video job. */
   async getExplainerJob(jobId: string): Promise<ExplainerJob> {
     const res = await this.makeRequest<ExplainerJobResponse>(
       `${API_ENDPOINTS.EXPLAINER_JOBS}/${encodeURIComponent(jobId)}`,
@@ -569,6 +618,10 @@ class ApiClient {
   }
 
   // Authenticated binary download (a <video>/<iframe> can't send the Authorization header).
+  /**
+   * GET a binary file with the bearer token, retrying once after a token refresh on 401.
+   * @param what Human-readable name used in the error message.
+   */
   private async fetchAuthorizedBlob(path: string, what: string): Promise<Blob> {
     const url = `${this.baseUrl}${path}`;
     let res = await fetch(url, { headers: this.buildAuthHeaders() });
@@ -579,6 +632,7 @@ class ApiClient {
     return res.blob();
   }
 
+  /** Download a finished explainer video as a Blob. */
   async fetchExplainerVideo(jobId: string): Promise<Blob> {
     return this.fetchAuthorizedBlob(
       `${API_ENDPOINTS.EXPLAINER_JOBS}/${encodeURIComponent(jobId)}/video`, 'video'
@@ -588,10 +642,15 @@ class ApiClient {
   // =====================
   // Presentations / slide decks (AUTH) — background job via self-hosted Presenton
   // =====================
+  /** Fetch the available slide templates and tones. */
   async getPresentationOptions(): Promise<PresentationOptions> {
     return this.makeRequest<PresentationOptions>(API_ENDPOINTS.PRESENTATION_OPTIONS, { method: 'GET' }, true);
   }
 
+  /**
+   * Start a background slide-deck job from the given files/text with slide count, template, tone and focus.
+   * @returns The created job (poll it with getPresentationJob).
+   */
   async startPresentation(
     params: {
       audioFile?: File;
@@ -624,6 +683,7 @@ class ApiClient {
     return res.job;
   }
 
+  /** Fetch the current status of a slide-deck job. */
   async getPresentationJob(jobId: string): Promise<PresentationJob> {
     const res = await this.makeRequest<PresentationJobResponse>(
       `${API_ENDPOINTS.PRESENTATION_JOBS}/${encodeURIComponent(jobId)}`, { method: 'GET' }, true
@@ -631,6 +691,7 @@ class ApiClient {
     return res.job;
   }
 
+  /** Download a finished deck as PPTX or its PDF preview as a Blob. */
   async fetchPresentationFile(jobId: string, format: 'pptx' | 'pdf'): Promise<Blob> {
     return this.fetchAuthorizedBlob(
       `${API_ENDPOINTS.PRESENTATION_JOBS}/${encodeURIComponent(jobId)}/file?format=${format}`,
@@ -639,6 +700,7 @@ class ApiClient {
   }
 
   // Process all types (summary, mindmap, quiz, flashcards) from multimedia
+  /** Generate summary, mindmap, quiz (10 questions) and flashcards in parallel from the same input. */
   async processMultimedia(
     audioFile?: File,
     videoFile?: File,

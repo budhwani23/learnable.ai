@@ -6,6 +6,7 @@ Role = Literal["teacher", "student"]
 
 
 def _strip(value):
+    """Strip surrounding whitespace from strings; return other values unchanged."""
     return value.strip() if isinstance(value, str) else value
 
 
@@ -20,6 +21,7 @@ class RegisterIn(BaseModel):
     @field_validator("username", "email", mode="before")
     @classmethod
     def trim_fields(cls, value):
+        """Trim whitespace from username and email before validation."""
         return _strip(value)
 
 
@@ -35,6 +37,7 @@ class LoginIn(BaseModel):
     @field_validator("username", mode="before")
     @classmethod
     def trim_username(cls, value):
+        """Trim whitespace from the username before validation."""
         return _strip(value)
 
 
@@ -52,6 +55,7 @@ class TokenOut(BaseModel):
 
 
 class CreditOut(BaseModel):
+    """Credit allowance for one resource type."""
     limit: int
     used: int
     remaining: int

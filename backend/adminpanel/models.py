@@ -16,7 +16,9 @@ class AuditLog(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
+        """Newest entries first."""
         ordering = ['-created_at', '-id']
 
     def __str__(self) -> str:
+        """One-line summary: timestamp, actor, action and target."""
         return f"{self.created_at:%Y-%m-%d %H:%M} {self.actor_username} {self.action} {self.target_username}"

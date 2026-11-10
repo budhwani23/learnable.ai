@@ -17,11 +17,13 @@ router = Router(auth=JWTAuth())
 
 
 class ExplainerVideoInput(Schema):
+    """Optional text input for an explainer video job: source text/topic/YouTube URL and focus."""
     text: Optional[str] = None   # free text, topic, or a YouTube URL
     focus: Optional[str] = None  # optional: what the student wants explained
 
 
 def _owned_job(request, job_id: str) -> dict:
+    """Return the explainer job if it belongs to the signed-in user; otherwise raise Http404."""
     job = jobs.get_job(job_id)
     if not job or job.get("user_id") != request.auth.id:
         raise Http404("Job not found")

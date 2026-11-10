@@ -54,6 +54,7 @@ def _client_ip(request) -> Optional[str]:
 
 
 def _audit(request, action: str, target: Optional[User] = None, **details) -> None:
+    """Record an AuditLog entry for the signed-in admin's action on `target`, with extra `details` and the caller IP."""
     actor = request.auth
     AuditLog.objects.create(
         actor=actor, actor_username=actor.username, action=action,
@@ -63,6 +64,7 @@ def _audit(request, action: str, target: Optional[User] = None, **details) -> No
 
 
 def _role_of(user: User) -> str:
+    """Effective role for display: 'admin' for staff, else the profile role (student if no profile)."""
     if user.is_staff:
         return "admin"
     profile = getattr(user, "profile", None)
@@ -70,6 +72,7 @@ def _role_of(user: User) -> str:
 
 
 def _status_of(user: User) -> str:
+    """Effective waitlist status: staff are always approved; users without a profile count as approved."""
     if user.is_staff:
         return UserProfile.STATUS_APPROVED
     profile = getattr(user, "profile", None)
@@ -77,6 +80,10 @@ def _status_of(user: User) -> str:
 
 
 def _user_row(user: User, credit_map=None) -> dict:
+    """
+    Serialize a user for the admin panel. Uses `credit_map` (from _credit_maps) when given,
+    otherwise queries the user's credit summary.
+    """
     profile = getattr(user, "profile", None)
     return {
         "id": user.id,
@@ -96,6 +103,10 @@ def _user_row(user: User, credit_map=None) -> dict:
 
 
 def _credit_maps(users: List[User]) -> dict:
+    """
+    Build {user_id: {resource_type: {limit, used, remaining}}} for `users` in one query,
+    filling in the default allowance for missing rows.
+    """
     default = credits.default_credit_limit()
     out = {u.id: {t: {"limit": default, "used": 0, "remaining": default} for t in RESOURCE_TYPE_IDS}
            for u in users}
@@ -143,6 +154,7 @@ def stats(request, days: int = 30):
                        "generations": gens.get(d, 0), "active_users": active.get(d, 0)})
 
     def active_since(delta):
+        """Count distinct users who logged in or generated something within `delta` of now."""
         cutoff = now - delta
         return users.filter(Q(last_login__gte=cutoff) | Q(usage_events__created_at__gte=cutoff)).distinct().count()
 
@@ -206,6 +218,10 @@ def list_users(request, q: str = "", status: str = "", role: str = "", active: s
 
 @router.get("/users/{user_id}")
 def user_detail(request, user_id: int):
+    """
+    Full profile of one user: credits, usage per resource type, token counters,
+    the 25 most recent generations and audit entries targeting them. 404 if not found.
+    """
     user = get_object_or_404(User.objects.select_related("profile"), id=user_id)
     get_profile(user)
     usage = {t: {"charged": 0, "refunded": 0} for t in RESOURCE_TYPE_IDS}
@@ -230,6 +246,7 @@ def user_detail(request, user_id: int):
 
 
 class StatusIn(Schema):
+    """Body for changing a user's waitlist/moderation status, with an optional reason."""
     status: Literal["pending", "approved", "rejected", "banned"]
     reason: str = ""
 
@@ -250,6 +267,7 @@ def change_status(request, user_id: int, data: StatusIn):
 
 
 class ActiveIn(Schema):
+    """Body for activating (true) or deactivating (false) an account."""
     active: bool
 
 
@@ -267,6 +285,7 @@ def set_active(request, user_id: int, data: ActiveIn):
 
 
 class RoleIn(Schema):
+    """Body for changing a user's role to student, teacher or admin."""
     role: Literal["student", "teacher", "admin"]
 
 
@@ -297,6 +316,7 @@ def change_role(request, user_id: int, data: RoleIn):
 
 
 class CreditsIn(Schema):
+    """Body for a credit change: grant, set or reset `amount` for one resource type or 'all'."""
     action: Literal["grant", "set", "reset"]
     resource_type: str = "all"  # one of RESOURCE_TYPE_IDS or "all"
     amount: int = 0
@@ -352,6 +372,7 @@ def waitlist(request, q: str = "", page: int = 1, page_size: int = 50):
 
 
 class BulkIn(Schema):
+    """Body for bulk approving or rejecting waitlisted users by id."""
     user_ids: List[int]
     action: Literal["approve", "reject"]
     reason: str = ""
@@ -408,6 +429,7 @@ def usage(request, days: int = 30, resource_type: str = ""):
 
 # ── audit log ────────────────────────────────────────────────────────────
 def _audit_row(a: AuditLog) -> dict:
+    """Serialize an AuditLog entry for the admin panel."""
     return {"id": a.id, "created_at": a.created_at, "actor": a.actor_username, "actor_id": a.actor_id,
             "action": a.action, "target": a.target_username, "target_id": a.target_id,
             "details": a.details, "ip_address": a.ip_address}
@@ -415,6 +437,7 @@ def _audit_row(a: AuditLog) -> dict:
 
 @router.get("/audit")
 def audit_log(request, q: str = "", action: str = "", page: int = 1, page_size: int = 50):
+    """Paginated audit log, newest first; filter by action prefix and actor/target username."""
     qs = AuditLog.objects.all()
     if action:
         qs = qs.filter(action__startswith=action)

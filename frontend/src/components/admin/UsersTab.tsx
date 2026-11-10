@@ -10,6 +10,10 @@ import UserDetailSheet from "./UserDetailSheet";
 
 const PAGE_SIZE = 25;
 
+/**
+ * Admin users tab: searchable, filterable (status, role, active) and sortable paginated user table.
+ * Clicking a row opens the UserDetailSheet for that user.
+ */
 export default function UsersTab() {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("any");
@@ -24,6 +28,7 @@ export default function UsersTab() {
     status: status === "any" ? "" : status, role: role === "any" ? "" : role, active: active === "any" ? "" : active,
   };
   const { data, error, loading, reload } = useAdminData(() => adminApi.users(params), [JSON.stringify(params)]);
+  /** Wrap a filter setter so changing the filter also jumps back to page 1. */
   const reset = <T,>(set: (v: T) => void) => (v: T) => { set(v); setPage(1); };
 
   return (

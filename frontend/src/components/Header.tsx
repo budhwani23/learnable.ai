@@ -7,6 +7,11 @@ import { useAuth } from "@/hooks/useAuth";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { RESOURCE_TYPES } from "@/lib/types";
 
+/**
+ * Sticky site header with the brand logo. Signed-in users see an Admin link (admins only), a credits
+ * popover with remaining credits per resource type (approved users), their role badge and Sign out;
+ * signed-out visitors on the home page see the teacher link and Get Started.
+ */
 const Header = () => {
   const { pathname } = useLocation();
   const { user, logout, isApproved, isAdmin } = useAuth();
@@ -16,6 +21,7 @@ const Header = () => {
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
+    /** Mark the header as scrolled (adds shadow/border) once the page is scrolled past 6px. */
     const onScroll = () => setScrolled(window.scrollY > 6);
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });

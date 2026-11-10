@@ -19,9 +19,11 @@ interface Options<J extends PollableJob, I> {
   intervalMs?: number;
 }
 
+/** Read a stored job id from localStorage; returns null if missing or storage is unavailable. */
 const readStored = (key: string): string | null => {
   try { return localStorage.getItem(key); } catch { return null; }
 };
+/** Save a job id to localStorage, or remove it when `id` is null. Storage errors are ignored. */
 const writeStored = (key: string, id: string | null) => {
   try {
     if (id) localStorage.setItem(key, id);
@@ -29,6 +31,12 @@ const writeStored = (key: string, id: string | null) => {
   } catch { /* storage unavailable: polling just won't survive a reload */ }
 };
 
+/**
+ * Track a long-running backend job: start it, remember its id in localStorage under `storageKey` so a
+ * reload resumes it, poll `getJob` every `intervalMs` while queued/running, and refresh the user's
+ * credits when a job starts or finishes.
+ * @returns The current job, starting/active flags, upload progress, error state, and `start`/`reset`.
+ */
 export function useJobPolling<J extends PollableJob, I>({
   storageKey,
   getJob,
@@ -71,6 +79,7 @@ export function useJobPolling<J extends PollableJob, I>({
     return () => window.clearTimeout(timer);
   }, [job, isActive, getJob, intervalMs]);
 
+  /** Start a new job with `input`, tracking upload progress, persisting its id and capturing any start error. */
   const start = useCallback(async (input: I) => {
     setError(null);
     setIsStarting(true);
@@ -87,6 +96,7 @@ export function useJobPolling<J extends PollableJob, I>({
     }
   }, [startJob, storageKey, refreshUser]);
 
+  /** Forget the current job and error and remove the stored job id. */
   const reset = useCallback(() => {
     setJob(null);
     setError(null);

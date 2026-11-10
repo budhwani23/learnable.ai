@@ -24,10 +24,16 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+/**
+ * Provides auth state to the app: loads the current user when a stored access token exists, refreshes
+ * it when the tab becomes visible again, and exposes login/register/logout plus derived role, approval
+ * and credit helpers.
+ */
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<Me | null>(null);
 
+  /** Load the current user from the API; clears the user only on 401/403 and always ends the loading state. */
   const fetchMe = useCallback(async () => {
     try {
       const me = await api.me();
@@ -48,6 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Pick up admin changes (approval, credit top-ups, bans) when the user returns to the tab.
   useEffect(() => {
+    /** Re-fetch the user when the tab becomes visible and a token is stored. */
     const onVisible = () => {
       if (document.visibilityState === 'visible' && localStorage.getItem(ACCESS_KEY)) fetchMe();
     };
@@ -55,18 +62,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [fetchMe]);
 
+  /** Sign in (optionally as a specific role), then load the new user. Clears any previous user first. */
   const login = useCallback(async (username: string, password: string, role?: Role) => {
     setUser(null); // never keep showing a previous account while switching
     await api.login(username, password, role);
     await fetchMe();
   }, [fetchMe]);
 
+  /** Create an account with the given role, then load the new user. Clears any previous user first. */
   const register = useCallback(async (username: string, email: string, password: string, role: Role) => {
     setUser(null);
     await api.register(username, email, password, role);
     await fetchMe();
   }, [fetchMe]);
 
+  /** Sign out locally: remove the stored access and refresh tokens and clear the user. */
   const logout = useCallback(() => {
     localStorage.removeItem(ACCESS_KEY);
     localStorage.removeItem(REFRESH_KEY);
@@ -90,6 +100,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
+/**
+ * Access the auth context.
+ * @throws If used outside an AuthProvider.
+ */
 export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) {

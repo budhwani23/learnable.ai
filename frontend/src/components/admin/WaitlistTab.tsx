@@ -9,6 +9,10 @@ import { ErrorNote, Pager, RoleBadge, fmtDate, useAdminData, useDebounced } from
 
 const PAGE_SIZE = 50;
 
+/**
+ * Admin waitlist tab: searchable, paginated list of pending users with per-row and bulk approve/reject.
+ * @param onChanged Called after a successful approve/reject so the parent can refresh counts.
+ */
 export default function WaitlistTab({ onChanged }: { onChanged: () => void }) {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
@@ -22,12 +26,14 @@ export default function WaitlistTab({ onChanged }: { onChanged: () => void }) {
   // Only ever act on users that are visible right now.
   const visiblePicked = users.filter(u => picked.has(u.id)).map(u => u.id);
 
+  /** Add or remove a user id from the bulk selection. */
   const toggle = (id: number) => setPicked(prev => {
     const next = new Set(prev);
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
 
+  /** Bulk approve or reject the given users via the admin API, toast the result, clear the selection and reload. */
   const act = async (ids: number[], action: "approve" | "reject") => {
     if (!ids.length) return;
     setBusy(true);

@@ -13,6 +13,7 @@ class UserProfileAdmin(admin.ModelAdmin):
 
 @admin.register(CreditAllowance)
 class CreditAllowanceAdmin(admin.ModelAdmin):
+    """Django admin view of per-user, per-resource-type credit allowances."""
     list_display = ('user', 'resource_type', 'used', 'limit', 'updated_at')
     list_filter = ('resource_type',)
     search_fields = ('user__username', 'user__email')
@@ -20,6 +21,7 @@ class CreditAllowanceAdmin(admin.ModelAdmin):
 
 @admin.register(UsageEvent)
 class UsageEventAdmin(admin.ModelAdmin):
+    """Django admin view of charged (and refunded) generations."""
     list_display = ('created_at', 'user', 'resource_type', 'refunded', 'ref')
     list_filter = ('resource_type', 'refunded')
     search_fields = ('user__username',)

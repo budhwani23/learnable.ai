@@ -18,6 +18,13 @@ import { ACTION_LABELS, ErrorNote, RoleBadge, StatusBadge, fmtDate, useAdminData
 
 type Confirm = { title: string; body: string; action: (reason: string) => Promise<unknown>; destructive?: boolean; withReason?: boolean };
 
+/**
+ * Side sheet with one user's details for admins: status/role/access controls (hidden for your own account),
+ * per-resource credits with add/set/reset, recent generations and admin history. Destructive actions go
+ * through a confirm dialog with an optional reason.
+ * @param userId User to show; `null` closes the sheet.
+ * @param onChanged Called after any successful change so the parent list can reload.
+ */
 export default function UserDetailSheet({ userId, onClose, onChanged }: {
   userId: number | null;
   onClose: () => void;
@@ -38,6 +45,10 @@ export default function UserDetailSheet({ userId, onClose, onChanged }: {
   const currentId = useRef(userId);
   useEffect(() => { currentId.current = userId; }, [userId]);
 
+  /**
+   * Run an admin API call with the busy flag set, toast `done` on success (or the error), reload the
+   * details only if the same user is still shown, and notify the parent.
+   */
   const run = async (fn: () => Promise<unknown>, done: string) => {
     const actedOn = userId;
     setBusy(true);
@@ -53,6 +64,10 @@ export default function UserDetailSheet({ userId, onClose, onChanged }: {
     }
   };
 
+  /**
+   * Change the user's account status. Approve and move-to-waitlist apply immediately; reject and ban
+   * open a confirm dialog that collects an optional reason first.
+   */
   const setStatus = (status: AccountStatus, label: string, destructive = false) => {
     if (!u) return;
     if (status === "approved" || status === "pending") {
@@ -69,6 +84,10 @@ export default function UserDetailSheet({ userId, onClose, onChanged }: {
     });
   };
 
+  /**
+   * Grant, set or reset credits for the selected resource (or all resources) via the admin API.
+   * Validates the amount (whole number 0-1000, at least 1 for grant) and toasts an error if invalid.
+   */
   const credits = (action: "grant" | "set" | "reset") => {
     if (!u) return;
     const n = Number(amount);

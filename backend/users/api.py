@@ -38,6 +38,7 @@ def _login_block(user: User):
 
 
 def _issue_tokens(user: User) -> dict:
+    """Record the login time (used for the admin "active users" stats) and return a new token pair."""
     update_last_login(None, user)  # powers "active users" in the admin stats
     access, refresh = create_tokens(user.id, user.username)
     return {"access": access, "refresh": refresh}

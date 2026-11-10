@@ -31,6 +31,11 @@ const STAGE_LABELS: Record<string, string> = {
   failed: "Failed",
 };
 
+/**
+ * Explainer video tab. Idle/failed: optional focus input and a Generate button (disabled without content
+ * or video credits). In progress: stage and progress bar. Finished: video player, narration transcript,
+ * download, share-to-class (teachers) and New video.
+ */
 const ExplainerVideoPanel: React.FC<ExplainerVideoPanelProps> = ({
   explainer,
   hasContent,

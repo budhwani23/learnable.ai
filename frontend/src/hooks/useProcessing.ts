@@ -17,6 +17,12 @@ import type {
   UploadedFile
 } from '@/lib/types';
 
+/**
+ * Processing state and React Query mutations for generating study resources (all-in-one, summary,
+ * mindmap, quiz, flashcards) from the uploaded audio/video/document files or text. Failures set an
+ * error status and show a toast; every mutation refreshes the user's credits when it settles.
+ * @param uploadedFiles Files to send; the first audio, video and document file are used.
+ */
 export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
   const [processingStatus, setProcessingStatus] = useState<ProcessingStatus>({
     state: PROCESSING_STATES.IDLE,
@@ -31,6 +37,7 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
 
   // Tell the user when generation fails (quota, server error, network...), instead of
   // silently re-enabling the button.
+  /** Set an error status and show a destructive toast; quota/rate-limit errors get a friendly "busy" message, others are trimmed to 300 chars. */
   const reportFailure = useCallback((error: Error) => {
     const raw = error?.message || '';
     const message = /\b429\b|quota|ResourceExhausted|rate.?limit/i.test(raw)
@@ -41,6 +48,7 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
   }, []);
 
   // Update processing status
+  /** Update the processing state, keeping the previous progress/message when they are not given. */
   const updateStatus = useCallback((
     state: ProcessingStatus['state'],
     progress?: number,
@@ -57,6 +65,7 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
   }, []);
 
   // Reset processing state
+  /** Return to idle and clear all results. */
   const resetProcessing = useCallback(() => {
     setProcessingStatus({
       state: PROCESSING_STATES.IDLE,
@@ -288,6 +297,7 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
   });
 
   // Cancel processing
+  /** Mark processing as cancelled (idle, 0%). Does not abort an in-flight request. */
   const cancelProcessing = useCallback(() => {
     updateStatus(PROCESSING_STATES.IDLE, 0, 'Processing cancelled');
   }, [updateStatus]);

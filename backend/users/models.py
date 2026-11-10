@@ -43,14 +43,17 @@ class UserProfile(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self) -> str:
+        """Readable label with username, role and status."""
         return f"Profile<{self.user.username}> ({self.role}, {self.status})"
 
     @property
     def is_teacher(self) -> bool:
+        """True if the profile's role is teacher."""
         return self.role == self.ROLE_TEACHER
 
     @property
     def is_approved(self) -> bool:
+        """True if the account has been approved (off the waitlist and not rejected/banned)."""
         return self.status == self.STATUS_APPROVED
 
 
@@ -68,6 +71,7 @@ RESOURCE_LABELS = dict(RESOURCE_TYPES)
 
 
 def default_credit_limit() -> int:
+    """Credits each user gets per resource type (settings.DEFAULT_CREDITS_PER_RESOURCE, default 3)."""
     return int(getattr(settings, 'DEFAULT_CREDITS_PER_RESOURCE', 3))
 
 
@@ -84,15 +88,18 @@ class CreditAllowance(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        """One allowance row per user and resource type."""
         constraints = [
             models.UniqueConstraint(fields=['user', 'resource_type'], name='uniq_allowance_per_type'),
         ]
 
     @property
     def remaining(self) -> int:
+        """Credits left for this resource type (never negative)."""
         return max(0, self.limit - self.used)
 
     def __str__(self) -> str:
+        """Compact label: user id, resource type and used/limit."""
         return f"{self.user_id}:{self.resource_type} {self.used}/{self.limit}"
 
 
@@ -106,8 +113,10 @@ class UsageEvent(models.Model):
     ref = models.CharField(max_length=200, blank=True, default='')
 
     class Meta:
+        """Newest first, indexed by user and resource type."""
         ordering = ['-created_at']
         indexes = [models.Index(fields=['user', 'resource_type'])]
 
     def __str__(self) -> str:
+        """Compact label: user id, resource type and timestamp."""
         return f"{self.user_id}:{self.resource_type} @ {self.created_at:%Y-%m-%d %H:%M}"

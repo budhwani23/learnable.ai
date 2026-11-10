@@ -7,6 +7,7 @@ import { adminApi } from "@/lib/admin";
 import { RESOURCE_TYPES } from "@/lib/types";
 import { ErrorNote, useAdminData } from "./common";
 
+/** Stat card with a label, big value and optional hint; becomes a keyboard-accessible button when `onClick` is given. */
 function Stat({ label, value, hint, onClick }: { label: string; value: number | string; hint?: string; onClick?: () => void }) {
   return (
     <Card
@@ -25,6 +26,11 @@ function Stat({ label, value, hint, onClick }: { label: string; value: number | 
   );
 }
 
+/**
+ * Admin overview: headline user/generation stats, a daily activity chart for the chosen
+ * range (7/30/90 days) and all-time generations per resource type.
+ * @param onOpenWaitlist Called when the Waitlist stat card is clicked.
+ */
 export default function OverviewTab({ onOpenWaitlist }: { onOpenWaitlist: () => void }) {
   const [days, setDays] = useState("30");
   const { data, error, loading } = useAdminData(() => adminApi.stats(Number(days)), [days]);

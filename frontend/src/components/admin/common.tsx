@@ -39,6 +39,7 @@ const STATUS_LABEL: Record<AccountStatus, string> = {
   approved: "Approved", pending: "Waitlist", rejected: "Rejected", banned: "Banned",
 };
 
+/** Account status badge (Approved/Waitlist/Rejected/Banned), plus a "Deactivated" badge when the user is inactive. */
 export function StatusBadge({ user }: { user: Pick<AdminUser, "status" | "is_active"> }) {
   return (
     <span className="inline-flex gap-1">
@@ -54,10 +55,15 @@ const ROLE_STYLE: Record<AdminRole, string> = {
   student: "bg-sky-100 text-sky-700 hover:bg-sky-100",
 };
 
+/** Colour-coded badge showing a user's role with its first letter capitalised. */
 export function RoleBadge({ role }: { role: AdminRole }) {
   return <Badge className={ROLE_STYLE[role]}>{role[0].toUpperCase() + role.slice(1)}</Badge>;
 }
 
+/**
+ * Format an ISO timestamp in the user's locale ("—" when missing).
+ * @param withTime Include the time of day as well as the date.
+ */
 export const fmtDate = (iso: string | null | undefined, withTime = false) => {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -66,6 +72,7 @@ export const fmtDate = (iso: string | null | undefined, withTime = false) => {
     : d.toLocaleDateString(undefined, { dateStyle: "medium" });
 };
 
+/** Pagination footer showing the total count, current page and Previous/Next buttons that call `onPage`. */
 export function Pager({ page, pageSize, total, onPage }: {
   page: number; pageSize: number; total: number; onPage: (p: number) => void;
 }) {
@@ -82,6 +89,7 @@ export function Pager({ page, pageSize, total, onPage }: {
   );
 }
 
+/** Red error box for a load error message; renders nothing when `error` is null. */
 export function ErrorNote({ error }: { error: string | null }) {
   if (!error) return null;
   return <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>;

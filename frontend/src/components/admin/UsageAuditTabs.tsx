@@ -7,6 +7,7 @@ import { adminApi } from "@/lib/admin";
 import { RESOURCE_TYPES } from "@/lib/types";
 import { ACTION_LABELS, ErrorNote, Pager, fmtDate, useAdminData, useDebounced } from "./common";
 
+/** Admin usage tab: per-resource generations, refunds, users and out-of-credit counts, plus the heaviest users for the chosen period. */
 export function UsageTab() {
   const [days, setDays] = useState("30");
   const { data, error } = useAdminData(() => adminApi.usage(Number(days)), [days]);
@@ -71,6 +72,7 @@ export function UsageTab() {
   );
 }
 
+/** Summarise an audit entry's details (before → after, resource ×amount, waitlist origin, reason) as one " · "-separated line. */
 const describe = (details: Record<string, unknown>) => {
   const parts: string[] = [];
   if (details.before !== undefined && typeof details.before !== "object") parts.push(`${details.before} → ${details.after}`);
@@ -80,6 +82,7 @@ const describe = (details: Record<string, unknown>) => {
   return parts.join(" · ");
 };
 
+/** Admin audit log tab: paginated table of admin actions with debounced search and an action-type filter. */
 export function AuditTab() {
   const [q, setQ] = useState("");
   const [action, setAction] = useState("any");

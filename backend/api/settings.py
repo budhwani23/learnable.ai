@@ -24,6 +24,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
 
 def _env_list(name: str, default: str = "") -> list:
+    """Read a comma-separated environment variable as a list of non-empty, trimmed values."""
     return [v.strip() for v in os.getenv(name, default).split(",") if v.strip()]
 
 

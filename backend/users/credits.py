@@ -21,7 +21,9 @@ logger = logging.getLogger(__name__)
 
 
 class OutOfCredits(Exception):
+    """Raised when a user has no credits left for a resource type."""
     def __init__(self, resource_type: str, limit: int):
+        """Store the resource type and limit and build a user-facing message."""
         self.resource_type = resource_type
         self.limit = limit
         label = RESOURCE_LABELS.get(resource_type, resource_type)
@@ -32,6 +34,7 @@ class OutOfCredits(Exception):
 
 
 def _check_type(resource_type: str) -> None:
+    """Raise ValueError if `resource_type` is not a known resource type."""
     if resource_type not in RESOURCE_TYPE_IDS:
         raise ValueError(f"Unknown resource type '{resource_type}'")
 
@@ -80,6 +83,10 @@ def refund(event_id: Optional[int]) -> bool:
 
 
 def _types(resource_type: str) -> Iterable[str]:
+    """
+    Resource types targeted by an admin action: every type for 'all', else just the
+    validated one (ValueError if unknown).
+    """
     if resource_type == "all":
         return RESOURCE_TYPE_IDS
     _check_type(resource_type)
@@ -130,6 +137,10 @@ def out_of_credits_response(user: User, exc: OutOfCredits) -> JsonResponse:
 
 
 def _failed(result) -> bool:
+    """
+    Whether a view result is an error: an HttpResponse or (status, body) tuple with
+    status >= 400, or a dict with a truthy 'error' key.
+    """
     if isinstance(result, HttpResponse):
         return result.status_code >= 400
     if isinstance(result, tuple) and result and isinstance(result[0], int):
@@ -148,8 +159,10 @@ def charges_credit(resource_type: str):
     _check_type(resource_type)
 
     def decorator(view):
+        """Wrap `view` so each call is charged one credit of `resource_type`."""
         @functools.wraps(view)
         def wrapper(request, *args, **kwargs):
+            """Consume a credit (402 if none left), run the view, and refund on exception or error result."""
             try:
                 event = consume(request.auth, resource_type, ref=request.path)
             except OutOfCredits as exc:
@@ -172,6 +185,7 @@ def refund_if_job_failed(run, get_job):
     refunded when the job fails or crashes.
     """
     def runner(job_id: str) -> None:
+        """Run the job; refund its credit if it raises (then re-raise) or ends with status 'failed'."""
         try:
             run(job_id)
         except Exception:
@@ -184,6 +198,7 @@ def refund_if_job_failed(run, get_job):
 
 
 def _refund_job(get_job, job_id: str) -> None:
+    """Refund the credit recorded on the job's `usage_event_id`, logging (not raising) any error."""
     try:
         job = get_job(job_id) or {}
         refund(job.get("usage_event_id"))

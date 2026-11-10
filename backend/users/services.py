@@ -13,14 +13,17 @@ def get_profile(user: User) -> UserProfile:
 
 
 def get_role(user: User) -> str:
+    """The user's role (teacher or student), creating the profile if needed."""
     return get_profile(user).role
 
 
 def is_teacher(user: User) -> bool:
+    """Whether the user's profile role is teacher."""
     return get_profile(user).is_teacher
 
 
 def set_role(user: User, role: str) -> None:
+    """Set the user's role; raises ValueError for an unknown role. Saves only if it changed."""
     if role not in dict(UserProfile.ROLES):
         raise ValueError(f"Unknown role '{role}'")
     profile = get_profile(user)
