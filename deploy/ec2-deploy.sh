@@ -38,7 +38,9 @@ aws ssm get-parameter --region "$AWS_REGION" --name "$PARAM" --with-decryption \
 mv "$STATE_DIR/app.env.new" "$STATE_DIR/app.env"
 
 # ---- Presenton (recreated only when its settings or image change) ----
-google_key="$(grep -E '^GOOGLE_API_KEY=' "$STATE_DIR/app.env" | tail -1 | cut -d= -f2-)"
+env_get() { grep -E "^$1=" "$STATE_DIR/app.env" | tail -1 | cut -d= -f2- || true; }
+google_key="$(env_get GOOGLE_API_KEY)"
+proxy_key="$(env_get PRESENTON_IMAGE_PROXY_KEY)"
 cat > "$STATE_DIR/presenton.env.new" <<EOF
 LLM=google
 GOOGLE_API_KEY=$google_key
@@ -46,8 +48,19 @@ GOOGLE_MODEL=models/gemini-3.5-flash-lite
 PRESENTON_PUBLIC_URL=http://presenton
 PRESENTON_COMMUNITY_ENABLED=false
 DISABLE_AUTH=true
-DISABLE_IMAGE_GENERATION=true
 EOF
+if [ -n "$proxy_key" ] && [ -n "$(env_get NVIDIA_API_KEY)" ]; then
+  # Slide images: Presenton -> the app's image proxy (NVIDIA FLUX, placeholder on failure).
+  cat >> "$STATE_DIR/presenton.env.new" <<EOF
+IMAGE_PROVIDER=openai_compatible
+OPENAI_COMPAT_IMAGE_BASE_URL=http://$NAME:8000/api/presentations/image-proxy/v1
+OPENAI_COMPAT_IMAGE_API_KEY=$proxy_key
+OPENAI_COMPAT_IMAGE_MODEL=nvidia
+EOF
+else
+  echo "NVIDIA_API_KEY or PRESENTON_IMAGE_PROXY_KEY not set: slide images use placeholders"
+  echo "DISABLE_IMAGE_GENERATION=true" >> "$STATE_DIR/presenton.env.new"
+fi
 docker pull -q "$PRESENTON_IMAGE" >/dev/null
 want="$(cat "$STATE_DIR/presenton.env.new" | sha256sum | cut -c1-16)-$(docker image inspect -f '{{.Id}}' "$PRESENTON_IMAGE" | cut -c8-23)"
 have="$(docker inspect -f '{{index .Config.Labels "learnable.config"}}' presenton 2>/dev/null || true)"

@@ -55,7 +55,11 @@ existing="$(gh secret list --repo "$REPO" --env dev | cut -f1 || true)"
 if [ "${ROTATE_DJANGO_SECRET:-0}" = "1" ] || ! printf '%s\n' "$existing" | grep -qx DJANGO_SECRET_KEY; then
   set_secret DJANGO_SECRET_KEY "$(python -c 'import secrets; print(secrets.token_urlsafe(50))')"
 fi
-for key in DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD GOOGLE_API_KEY GOOGLE_OAUTH_CLIENT_ID; do
+# Shared secret between Presenton and the app's image proxy on the server; generated once.
+if ! printf '%s\n' "$existing" | grep -qx PRESENTON_IMAGE_PROXY_KEY; then
+  set_secret PRESENTON_IMAGE_PROXY_KEY "$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+fi
+for key in DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD GOOGLE_API_KEY GOOGLE_OAUTH_CLIENT_ID NVIDIA_API_KEY; do
   set_secret "$key" "$(env_value "$key")"
 done
 if [ "$FAILED" = "1" ]; then echo "Some secrets failed; fix the errors above and run again."; exit 1; fi

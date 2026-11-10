@@ -120,13 +120,16 @@ jobs:
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          PRESENTON_IMAGE_PROXY_KEY: ${{ secrets.PRESENTON_IMAGE_PROXY_KEY }}
         run: |
           host="${APP_URL#https://}"; host="${host%%/*}"
           env_file=$(mktemp)
           {
             echo "DJANGO_DEBUG=false"
             echo "DJANGO_SECRET_KEY=$DJANGO_SECRET_KEY"
-            echo "DJANGO_ALLOWED_HOSTS=$host,localhost,127.0.0.1"
+            # "learnable" is the app's name on the host's Docker network (Presenton calls it).
+            echo "DJANGO_ALLOWED_HOSTS=$host,learnable,localhost,127.0.0.1"
             echo "CSRF_TRUSTED_ORIGINS=$APP_URL"
             echo "FRONTEND_URL=$APP_URL"
             echo "SECURE_PROXY_SSL_HEADER_NAME=HTTP_CLOUDFRONT_FORWARDED_PROTO"
@@ -138,6 +141,8 @@ jobs:
             echo "DB_SSLMODE=require"
             echo "GOOGLE_API_KEY=$GOOGLE_API_KEY"
             echo "GOOGLE_OAUTH_CLIENT_ID=$GOOGLE_OAUTH_CLIENT_ID"
+            echo "NVIDIA_API_KEY=$NVIDIA_API_KEY"
+            echo "PRESENTON_IMAGE_PROXY_KEY=$PRESENTON_IMAGE_PROXY_KEY"
             echo "GIT_SHA=$GITHUB_SHA"
           } > "$env_file"
           aws ssm put-parameter --region "$AWS_REGION" --name /learnable/dev/env --type SecureString --overwrite --value "file://$env_file" > /dev/null
