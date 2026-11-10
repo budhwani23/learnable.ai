@@ -59,6 +59,34 @@ def text_and_images(prompt: str, images: Iterable[Union[bytes, tuple]]) -> List[
 _TRANSIENT = (429, 500, 502, 503, 504)
 
 
+def complete(payload: Dict[str, Any], *, timeout: Optional[int] = None, attempts: int = 4) -> Dict[str, Any]:
+    """
+    POST an OpenAI-style chat completion payload to Cerebras (non-streaming) and return
+    the raw response JSON. Retries 429/5xx and network errors with backoff.
+    """
+    if not is_configured():
+        raise CerebrasError("Missing CEREBRAS_API_KEY in environment")
+    url = f"{os.getenv('CEREBRAS_BASE_URL', CEREBRAS_BASE_URL)}/chat/completions"
+    timeout = timeout or int(os.getenv("CEREBRAS_TIMEOUT", "120"))
+    last_err = "unknown error"
+    for i in range(max(1, attempts)):
+        try:
+            resp = requests.post(url, headers=headers(), json=payload, timeout=timeout)
+        except requests.RequestException as e:  # network / timeout: transient
+            last_err = f"network error: {e}"
+        else:
+            if resp.status_code < 400:
+                return resp.json()
+            last_err = f"HTTP {resp.status_code}: {resp.text[:300]}"
+            if resp.status_code not in _TRANSIENT:
+                break
+        if i < attempts - 1:
+            delay = min(30, 2 * 2 ** i)
+            logger.warning("Cerebras request failed (%s); retrying in %ss", last_err[:120], delay)
+            time.sleep(delay)
+    raise CerebrasError(f"Cerebras request failed: {last_err}")
+
+
 def chat(
     content: Content,
     *,
@@ -87,24 +115,5 @@ def chat(
     }
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
-    url = f"{os.getenv('CEREBRAS_BASE_URL', CEREBRAS_BASE_URL)}/chat/completions"
-    timeout = timeout or int(os.getenv("CEREBRAS_TIMEOUT", "120"))
-
-    last_err = "unknown error"
-    for i in range(max(1, attempts)):
-        try:
-            resp = requests.post(url, headers=headers(), json=payload, timeout=timeout)
-        except requests.RequestException as e:  # network / timeout: transient
-            last_err = f"network error: {e}"
-        else:
-            if resp.status_code < 400:
-                message = resp.json()["choices"][0]["message"]
-                return (message.get("content") or "").strip()
-            last_err = f"HTTP {resp.status_code}: {resp.text[:300]}"
-            if resp.status_code not in _TRANSIENT:
-                break
-        if i < attempts - 1:
-            delay = min(30, 2 * 2 ** i)
-            logger.warning("Cerebras request failed (%s); retrying in %ss", last_err[:120], delay)
-            time.sleep(delay)
-    raise CerebrasError(f"Cerebras request failed: {last_err}")
+    data = complete(payload, timeout=timeout, attempts=attempts)
+    return (data["choices"][0]["message"].get("content") or "").strip()
