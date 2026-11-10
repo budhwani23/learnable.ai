@@ -13,6 +13,10 @@ function Stat({ label, value, hint, onClick }: { label: string; value: number | 
       className={`p-4 ${onClick ? "cursor-pointer hover:border-emerald-400 transition-colors" : ""}`}
       onClick={onClick}
       role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); }
+      } : undefined}
     >
       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
       <p className="mt-1 text-2xl font-semibold text-gray-900">{value}</p>

@@ -290,6 +290,9 @@ JWT_REFRESH_TTL_SECONDS = int(os.getenv('JWT_REFRESH_TTL_SECONDS', 60 * 60 * 24 
 DEFAULT_CREDITS_PER_RESOURCE = int(os.getenv('DEFAULT_CREDITS_PER_RESOURCE', 3))
 # New self sign-ups wait for admin approval. Set WAITLIST_ENABLED=false to let them straight in.
 WAITLIST_ENABLED = os.getenv('WAITLIST_ENABLED', 'true').lower() in ('1', 'true', 'yes')
+# Reverse proxies in front of Django that append to X-Forwarded-For (e.g. CloudFront + ALB = 2).
+# 0 = record REMOTE_ADDR in the admin audit log and ignore the client-controllable header.
+TRUSTED_PROXY_COUNT = int(os.getenv('TRUSTED_PROXY_COUNT', 0))
 
 # =========================
 # LMS integrations (LTI 1.3 + Google)

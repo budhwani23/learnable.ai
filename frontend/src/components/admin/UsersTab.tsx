@@ -90,7 +90,14 @@ export default function UsersTab() {
           </TableHeader>
           <TableBody>
             {data?.users?.map((u) => (
-              <TableRow key={u.id} className="cursor-pointer" onClick={() => setSelected(u.id)} data-testid={`user-row-${u.username}`}>
+              <TableRow key={u.id}
+                        className="cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-600"
+                        tabIndex={0} aria-label={`Open ${u.username}`}
+                        onClick={() => setSelected(u.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelected(u.id); }
+                        }}
+                        data-testid={`user-row-${u.username}`}>
                 <TableCell>
                   <div className="font-medium">{u.username}</div>
                   <div className="text-xs text-muted-foreground">{u.email}</div>

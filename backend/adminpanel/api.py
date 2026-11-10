@@ -17,6 +17,7 @@ and only superusers can act on other admins or grant/remove admin rights.
 from datetime import timedelta
 from typing import List, Literal, Optional
 
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import transaction
 from django.db.models import Count, F, Q
@@ -39,8 +40,17 @@ PAGE_SIZE_MAX = 100
 
 # ── helpers ──────────────────────────────────────────────────────────────
 def _client_ip(request) -> Optional[str]:
-    forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
-    return (forwarded.split(",")[0].strip() if forwarded else request.META.get("REMOTE_ADDR")) or None
+    """
+    Caller IP for the audit log. The left-most X-Forwarded-For entry is client-controlled,
+    so it is never trusted. With TRUSTED_PROXY_COUNT=N (N proxies in front of Django that
+    each append to the header), use the entry the outermost trusted proxy appended.
+    """
+    hops = int(getattr(settings, "TRUSTED_PROXY_COUNT", 0) or 0)
+    if hops > 0:
+        chain = [p.strip() for p in request.META.get("HTTP_X_FORWARDED_FOR", "").split(",") if p.strip()]
+        if len(chain) >= hops:
+            return chain[-hops]
+    return request.META.get("REMOTE_ADDR") or None
 
 
 def _audit(request, action: str, target: Optional[User] = None, **details) -> None:
@@ -354,9 +364,13 @@ def waitlist_bulk(request, data: BulkIn):
     if not ids:
         return 400, {"detail": "Select at least one user."}
     status = UserProfile.STATUS_APPROVED if data.action == "approve" else UserProfile.STATUS_REJECTED
-    users = list(User.objects.filter(id__in=ids, is_staff=False,
-                                     profile__status=UserProfile.STATUS_PENDING))
     with transaction.atomic():
+        # Lock the profiles and re-check "pending" inside the transaction, so a concurrent
+        # ban/approval by another admin is never overwritten.
+        locked = list(UserProfile.objects.select_for_update()
+                      .filter(user_id__in=ids, user__is_staff=False, status=UserProfile.STATUS_PENDING)
+                      .values_list("user_id", flat=True))
+        users = list(User.objects.filter(id__in=locked).order_by("id"))
         for u in users:
             set_status(u, status, data.reason)
             # One entry per user, so it shows in that user's admin history too.

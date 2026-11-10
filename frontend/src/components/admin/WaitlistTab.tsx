@@ -19,6 +19,8 @@ export default function WaitlistTab({ onChanged }: { onChanged: () => void }) {
     () => adminApi.waitlist({ q: query, page, page_size: PAGE_SIZE }), [query, page]);
   const users = data?.users ?? [];
   const allPicked = users.length > 0 && users.every(u => picked.has(u.id));
+  // Only ever act on users that are visible right now.
+  const visiblePicked = users.filter(u => picked.has(u.id)).map(u => u.id);
 
   const toggle = (id: number) => setPicked(prev => {
     const next = new Set(prev);
@@ -47,13 +49,13 @@ export default function WaitlistTab({ onChanged }: { onChanged: () => void }) {
     <div className="space-y-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <Input className="sm:max-w-xs" placeholder="Search waitlist" value={q}
-               onChange={(e) => { setQ(e.target.value); setPage(1); }} />
+               onChange={(e) => { setQ(e.target.value); setPage(1); setPicked(new Set()); }} />
         <div className="flex gap-2">
-          <Button disabled={busy || picked.size === 0} className="bg-emerald-600 hover:bg-emerald-700"
-                  onClick={() => act([...picked], "approve")} data-testid="bulk-approve">
-            Approve selected ({picked.size})
+          <Button disabled={busy || visiblePicked.length === 0} className="bg-emerald-600 hover:bg-emerald-700"
+                  onClick={() => act(visiblePicked, "approve")} data-testid="bulk-approve">
+            Approve selected ({visiblePicked.length})
           </Button>
-          <Button variant="outline" disabled={busy || picked.size === 0} onClick={() => act([...picked], "reject")}>
+          <Button variant="outline" disabled={busy || visiblePicked.length === 0} onClick={() => act(visiblePicked, "reject")}>
             Reject selected
           </Button>
         </div>
@@ -101,7 +103,7 @@ export default function WaitlistTab({ onChanged }: { onChanged: () => void }) {
           </TableBody>
         </Table>
       </div>
-      {data && <Pager page={data.page} pageSize={data.page_size} total={data.total} onPage={setPage} />}
+      {data && <Pager page={data.page} pageSize={data.page_size} total={data.total} onPage={(p) => { setPage(p); setPicked(new Set()); }} />}
     </div>
   );
 }

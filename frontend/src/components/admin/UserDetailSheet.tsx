@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
@@ -33,13 +33,18 @@ export default function UserDetailSheet({ userId, onClose, onChanged }: {
   const [amount, setAmount] = useState("3");
 
   const isSelf = !!u && u.id === me?.id;
+  // The user currently shown; an action that finishes after the admin switched users
+  // must not reload (and show) the old user's details.
+  const currentId = useRef(userId);
+  useEffect(() => { currentId.current = userId; }, [userId]);
 
   const run = async (fn: () => Promise<unknown>, done: string) => {
+    const actedOn = userId;
     setBusy(true);
     try {
       await fn();
       toast.success(done);
-      await reload();
+      if (currentId.current === actedOn) await reload();
       onChanged();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "That didn't work");
@@ -67,8 +72,9 @@ export default function UserDetailSheet({ userId, onClose, onChanged }: {
   const credits = (action: "grant" | "set" | "reset") => {
     if (!u) return;
     const n = Number(amount);
-    if (action !== "reset" && (!Number.isInteger(n) || n < 0 || (action === "grant" && n === 0))) {
-      toast.error("Enter a whole number of credits.");
+    if (action !== "reset" && (amount.trim() === "" || !Number.isInteger(n) || n < 0 || n > 1000
+        || (action === "grant" && n === 0))) {
+      toast.error("Enter a whole number of credits from 0 to 1000 (at least 1 to add).");
       return;
     }
     const what = creditType === "all" ? "every resource" : RESOURCE_TYPES.find(r => r.id === creditType)?.label;

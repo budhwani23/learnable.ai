@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import api from '@/lib/api';
+import api, { HttpError } from '@/lib/api';
 import type { Me, ResourceType, Role } from '@/lib/types';
 
 const ACCESS_KEY = 'auth_access';
@@ -32,8 +32,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const me = await api.me();
       setUser(me);
-    } catch {
-      setUser(null);
+    } catch (e) {
+      // Only drop the user when the server rejects the credentials (expired/invalid token,
+      // deactivated account). A network blip or 5xx keeps the current session on screen.
+      if (e instanceof HttpError && (e.status === 401 || e.status === 403)) setUser(null);
     } finally {
       setLoading(false);
     }
@@ -54,11 +56,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [fetchMe]);
 
   const login = useCallback(async (username: string, password: string, role?: Role) => {
+    setUser(null); // never keep showing a previous account while switching
     await api.login(username, password, role);
     await fetchMe();
   }, [fetchMe]);
 
   const register = useCallback(async (username: string, email: string, password: string, role: Role) => {
+    setUser(null);
     await api.register(username, email, password, role);
     await fetchMe();
   }, [fetchMe]);

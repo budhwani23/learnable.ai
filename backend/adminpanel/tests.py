@@ -106,6 +106,17 @@ class AdminPanelTests(TestCase):
         audit = self.client.get("/api/admin/audit", **hdr(self.staff)).json()
         self.assertEqual(audit["total"], 3)
 
+    def test_audit_ip_ignores_forged_forwarded_for(self):
+        from django.test import override_settings
+        url, body = f"/api/admin/users/{self.user.id}/role", {"role": "teacher"}
+        self.client.post(url, data=json.dumps(body), content_type="application/json",
+                         HTTP_X_FORWARDED_FOR="6.6.6.6", REMOTE_ADDR="10.0.0.5", **hdr(self.staff))
+        self.assertEqual(AuditLog.objects.latest("id").ip_address, "10.0.0.5")
+        with override_settings(TRUSTED_PROXY_COUNT=1):
+            self.client.post(url, data=json.dumps({"role": "student"}), content_type="application/json",
+                             HTTP_X_FORWARDED_FOR="6.6.6.6, 203.0.113.9", REMOTE_ADDR="10.0.0.5", **hdr(self.staff))
+        self.assertEqual(AuditLog.objects.latest("id").ip_address, "203.0.113.9")
+
     def test_admin_safety_rules(self):
         # No self lock-out.
         r = self.post(f"/api/admin/users/{self.staff.id}/active", {"active": False}, self.staff)
