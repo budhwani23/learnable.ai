@@ -1,0 +1,60 @@
+/* Ticker container: exactly one line tall */
+.buttonTicker {
+  position: relative;
+  display: inline-block;
+  height: 1.25rem;         /* ≈ h-5 */
+  line-height: 1.25rem;    /* match the height so only one line shows */
+  overflow: hidden;
+  will-change: transform, opacity;
+}
+
+/* The main (visible) label */
+.buttonTicker > .line {
+  display: block;
+  transform: translateY(0%);
+}
+
+/* The returning label comes from below via ::after */
+.buttonTicker::after {
+  content: attr(data-label);
+  position: absolute;
+  left: 0;
+  right: 0;
+  transform: translateY(100%); /* start hidden below */
+  opacity: 1;
+  will-change: transform, opacity;
+}
+
+/* Keyframes: fast up for the current line */
+@keyframes labelUpFast {
+  0%   { transform: translateY(0%);   opacity: 1; }
+  100% { transform: translateY(-100%); opacity: 1; }
+}
+
+/* Keyframes: slow rise from bottom for the returning line */
+@keyframes labelReturnSlow {
+  0%   { transform: translateY(100%); }
+  15%  { transform: translateY(100%); } /* tiny settle/pause */
+  100% { transform: translateY(0%); }
+}
+
+/* Trigger on hover/focus of the button (uses Tailwind’s group) */
+.group:hover .buttonTicker > .line,
+.group:focus-visible .buttonTicker > .line {
+  animation: labelUpFast 0.45s cubic-bezier(0.55, 0.06, 0.68, 0.19) forwards; /* up fast */
+}
+
+.group:hover .buttonTicker::after,
+.group:focus-visible .buttonTicker::after {
+  animation: labelReturnSlow 1.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;    /* slow from bottom */
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .group:hover .buttonTicker > .line,
+  .group:focus-visible .buttonTicker > .line,
+  .group:hover .buttonTicker::after,
+  .group:focus-visible .buttonTicker::after {
+    animation: none;
+  }
+}

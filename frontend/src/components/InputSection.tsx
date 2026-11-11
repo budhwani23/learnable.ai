@@ -12,7 +12,6 @@ import {
   Type, 
   Play, 
   FileText, 
-  AlertTriangle, 
   Loader2, 
   X, 
   File, 
@@ -22,19 +21,50 @@ import {
   Trash2,
   Plus
 } from "lucide-react";
+import { ArrowRight, Video, Headphones, Target, Menu,
+
+
+  Wand2,
+
+
+  Map,
+  
+  Share2,
+  Download,
+  Check,
+  Star,
+  Zap,
+  Heart, } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useApiKey } from "@/hooks/useApiKey";
 import FileUpload from "@/components/ui/file-upload";
 import { SUPPORTED_FILE_TYPES } from "@/lib/constants";
 import type { useFileUpload } from "@/hooks/useFileUpload";
 import type { useProcessing } from "@/hooks/useProcessing";
 import type { ProcessingResults } from "@/lib/types";
 import ResultsSection from "@/components/ResultsSection";
+import ExplainerVideoPanel from "@/components/ExplainerVideoPanel";
+import { CreditNote, CreditPill } from "@/components/CreditBadge";
+import { useAuth } from "@/hooks/useAuth";
+import type { ResourceType } from "@/lib/types";
+import { useExplainerVideo } from "@/hooks/useExplainerVideo";
+import { Clapperboard, Presentation } from "lucide-react";
+import PresentationPanel, { type PresentationSettings } from "@/components/PresentationPanel";
+import { usePresentation } from "@/hooks/usePresentation";
 
 type InputSectionProps = ReturnType<typeof useFileUpload> &
   Omit<ReturnType<typeof useProcessing>, 'summarizeTextMutation'> &
   { results: ProcessingResults | null };
 
+// The URL tab works from YouTube transcripts; other links would just be summarised as text.
+/** True when `value` (trimmed) is an http(s) YouTube watch, shorts, live or youtu.be link. */
+const isValidUrl = (value: string) =>
+  /^https?:\/\/(www\.|m\.)?(youtube\.com\/(watch\?|shorts\/|live\/)|youtu\.be\/)\S+/i.test(value.trim());
+
+/**
+ * Main "Create Learning Resources" section: text, file or YouTube URL input on one side and resource
+ * tabs (summary, mindmap, quiz, flashcards, explainer video, slides) on the other, each generate
+ * button gated by the user's remaining credits for that resource type.
+ */
 const InputSection: React.FC<InputSectionProps> = ({
   uploadedFiles,
   isDragOver,
@@ -55,31 +85,73 @@ const InputSection: React.FC<InputSectionProps> = ({
   results,
 }) => {
   const [activeTab, setActiveTab] = useState("summary");
+  const { creditsLeft } = useAuth();
+  const TEXT_TABS: ResourceType[] = ["summary", "mindmap", "quiz", "flashcards"];
+  const noCredits = TEXT_TABS.includes(activeTab as ResourceType) && creditsLeft(activeTab as ResourceType) === 0;
   const [textInput, setTextInput] = useState("");
   const [urlInput, setUrlInput] = useState("");
   const [inputMethod, setInputMethod] = useState<"text" | "file" | "url">("text");
   const { toast } = useToast();
-  
-  // Custom hooks
-  const { hasApiKey, validateApiKey } = useApiKey();
+  const explainer = useExplainerVideo();
+  const presentation = usePresentation();
+
+  // Start an AI explainer-video job from whichever input method is active
+  /**
+   * Start an explainer-video job using the active input (first audio/video/document file, the text,
+   * or the URL) plus the optional focus prompt.
+   */
+  const handleGenerateVideo = (focus: string) => {
+    /** First uploaded file whose extension is in `exts`. */
+    const findFile = (exts: string[]) => uploadedFiles.find(f => exts.includes(f.extension))?.file;
+    const useFiles = inputMethod === "file";
+    explainer.start({
+      audioFile: useFiles ? findFile(SUPPORTED_FILE_TYPES.AUDIO) : undefined,
+      videoFile: useFiles ? findFile(SUPPORTED_FILE_TYPES.VIDEO) : undefined,
+      documentFile: useFiles ? findFile(SUPPORTED_FILE_TYPES.DOCUMENTS) : undefined,
+      text: inputMethod === "text" ? textInput : inputMethod === "url" ? urlInput : undefined,
+      focus,
+    });
+  };
+
+  // Start a slide-deck job from whichever input method is active
+  /**
+   * Start a slide-deck job using the active input (first audio/video/document file, the text, or the
+   * URL) and the chosen focus, slide count, template and tone.
+   */
+  const handleGeneratePresentation = ({ focus, nSlides, template, tone }: PresentationSettings) => {
+    /** First uploaded file whose extension is in `exts`. */
+    const findFile = (exts: string[]) => uploadedFiles.find(f => exts.includes(f.extension))?.file;
+    const useFiles = inputMethod === "file";
+    presentation.start({
+      audioFile: useFiles ? findFile(SUPPORTED_FILE_TYPES.AUDIO) : undefined,
+      videoFile: useFiles ? findFile(SUPPORTED_FILE_TYPES.VIDEO) : undefined,
+      documentFile: useFiles ? findFile(SUPPORTED_FILE_TYPES.DOCUMENTS) : undefined,
+      text: inputMethod === "text" ? textInput : inputMethod === "url" ? urlInput : undefined,
+      focus,
+      nSlides,
+      template,
+      tone,
+    });
+  };
 
   // Check if processing is in progress
   const isProcessing = processingStatus.state === 'processing' || processingStatus.state === 'uploading';
 
   // Handle content generation based on active tab and input method
+  /**
+   * Run the summary, mindmap, quiz or flashcards mutation for the active tab with the current input.
+   * Shows a toast instead when the user is out of credits for that tab or no input was given.
+   */
   const handleGenerateContent = () => {
-    if (!hasApiKey) {
+    if (noCredits) {
       toast({
-        title: "API Key Required",
-        description: "Please configure your Gemini API key in Settings.",
+        title: "Out of credits",
+        description: "You've used all your credits for this. Ask an administrator for more.",
         variant: "destructive",
       });
       return;
     }
-
     try {
-      validateApiKey();
-      
       switch (activeTab) {
         case "summary":
           if ((inputMethod === "text" && textInput.trim()) || (inputMethod === "file" && uploadedFiles.length > 0) || (inputMethod === "url" && urlInput.trim())) {
@@ -151,6 +223,7 @@ const InputSection: React.FC<InputSectionProps> = ({
   };
 
   // Check if current input method has content
+  /** True when the active input method has usable input (non-empty text, at least one file, or a valid YouTube URL). */
   const hasContent = () => {
     switch (inputMethod) {
       case "text":
@@ -158,12 +231,13 @@ const InputSection: React.FC<InputSectionProps> = ({
       case "file":
         return uploadedFiles.length > 0;
       case "url":
-        return urlInput.trim().length > 0;
+        return isValidUrl(urlInput);
       default:
         return false;
     }
   };
 
+  /** True when a result already exists for the active text-resource tab (summary, mindmap, quiz or flashcards). */
   const hasResultsForTab = () => {
     if (!results) return false;
     switch (activeTab) {
@@ -181,6 +255,7 @@ const InputSection: React.FC<InputSectionProps> = ({
   };
 
   // Get loading state for current tab
+  /** Whether the mutation for the active text-resource tab is pending. */
   const getLoadingState = () => {
     switch (activeTab) {
       case "summary":
@@ -195,56 +270,91 @@ const InputSection: React.FC<InputSectionProps> = ({
         return false;
     }
   };
-
+      /**
+       * Clear files, text and URL, go back to the summary tab, reset video/slide jobs that are not still
+       * running, and blank the existing text results.
+       */
+      const handleClearAll = () => {
+        clearFiles();                // Clear uploaded files
+        setTextInput("");            // Clear text input
+        setUrlInput("");             // Clear URL input
+        setActiveTab("summary");     // Optional: Reset to summary tab
+        if (!explainer.isActive) explainer.reset(); // keep tracking a video that is still rendering
+        if (!presentation.isActive) presentation.reset();
+        // Optionally clear processing status if needed
+        // Reset results
+        if (results) {
+          results.summary = undefined;
+          results.mindmap = undefined;
+          results.quiz = undefined;
+          results.flashcards = undefined;
+        }
+      };
   return (
-    <section className="py-16 bg-muted/30">
+<section className="py-16 bg-emerald-50">
       <div className="container mx-auto px-4">
-        <div className="text-center mb-12">
+        <div className="text-center mb-12 ">
           <h2 className="text-3xl font-bold mb-4 text-foreground">Create Learning Resources</h2>
           <p className="text-muted-foreground max-w-2xl mx-auto">
             Upload your content and generate different types of learning materials on demand.
           </p>
+         < div className="text-center py-8">
+          <div className="inline-flex items-center gap-6 bg-card rounded-2xl p-6 shadow-card">
+            <div className="flex items-center gap-2">
+              <Video className="h-5 w-5 text-primary" />
+              <span className="text-sm font-medium">Video</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Headphones className="h-5 w-5 text-secondary" />
+              <span className="text-sm font-medium">Audio</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <FileText className="h-5 w-5 text-accent" />
+              <span className="text-sm font-medium">Text</span>
+            </div>
+          </div>
+        </div>
         </div>
 
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Left Side - File Upload & Input */}
-          <Card className="p-6 bg-card shadow-elevated border-0">
+          <Card className="p-6 shadow-xl border-0">
             <div className="mb-6">
-              <h3 className="text-xl font-bold mb-4 text-foreground">Input Content</h3>
+              <h3 className="text-xl font-bold mb-4 text-gray-700">Input Content</h3>
               
               {/* Input Method Tabs */}
               <Tabs value={inputMethod} onValueChange={(value) => setInputMethod(value as any)} className="w-full">
-                <TabsList className="grid w-full grid-cols-3 mb-6">
-                  <TabsTrigger value="text" className="flex items-center gap-2">
+                <TabsList className="grid w-full grid-cols-3 mb-6 bg-emerald-600">
+                  <TabsTrigger value="text" className=" mr-1 flex items-center gap-2 text-white focus:text-gray-700">
                     <Type className="h-4 w-4" />
-                    Text
+                    <div className="">Text</div>
                   </TabsTrigger>
-                  <TabsTrigger value="file" className="flex items-center gap-2">
+                  <TabsTrigger value="file" className="flex items-center gap-2 text-white">
                     <Upload className="h-4 w-4" />
                     Files
                   </TabsTrigger>
-                  <TabsTrigger value="url" className="flex items-center gap-2">
+                  <TabsTrigger value="url" className="ml-1 flex items-center gap-2 text-white">
                     <Link className="h-4 w-4" />
                     URL
                   </TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="text" className="space-y-4">
-                  <Label htmlFor="text-input" className="text-base font-medium">
-                    Paste your content
+                  <Label htmlFor="text-input" className="text-gray-900 font-medium">
+                    
                   </Label>
                   <Textarea
                     id="text-input"
                     placeholder="Paste your text content, lecture notes, or any educational material here..."
                     value={textInput}
                     onChange={(e) => setTextInput(e.target.value)}
-                    className="min-h-[300px] text-base resize-none"
+                    className="min-h-[300px] text-gray-900 resize-none border-white"
                     disabled={isProcessing}
                   />
                 </TabsContent>
 
                 <TabsContent value="file" className="space-y-4">
-                  <Label className="text-base font-medium">Upload Files</Label>
+                  <Label className="text-base font-medium"></Label>
                   <FileUpload
                     uploadedFiles={uploadedFiles}
                     isDragOver={isDragOver}
@@ -256,74 +366,105 @@ const InputSection: React.FC<InputSectionProps> = ({
                     fileInputRef={fileInputRef}
                     onFileInputChange={handleFileInputChange}
                     acceptedTypes={SUPPORTED_FILE_TYPES.ALL}
-                    multiple={true}
+                    multiple={false}
                     disabled={isProcessing}
                   />
                 </TabsContent>
 
                 <TabsContent value="url" className="space-y-4">
-                  <Label htmlFor="url-input" className="text-base font-medium">
+                  <Label htmlFor="url-input" className="text-gray-600 font-medium">
                     Enter URL
                   </Label>
                   <Input
                     id="url-input"
                     type="url"
-                    placeholder="https://youtube.com/watch?v=... or any educational link"
+                    placeholder="https://www.youtube.com/watch?v=..."
                     value={urlInput}
                     onChange={(e) => setUrlInput(e.target.value)}
+                    disabled={isProcessing}
+                    aria-invalid={!!urlInput.trim() && !isValidUrl(urlInput)}
                     className="text-base"
                   />
-                  <p className="text-sm text-muted-foreground">
-                    Supports YouTube videos, educational websites, and online documents
-                  </p>
+                  {urlInput.trim() && !isValidUrl(urlInput) ? (
+                    <p className="text-sm text-red-600">
+                      That isn't a YouTube video link. Paste a link like https://www.youtube.com/watch?v=…
+                    </p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Paste a YouTube video link. For other pages, copy the text into the Text tab.
+                    </p>
+                  )}
                 </TabsContent>
               </Tabs>
             </div>
 
-            {!hasApiKey && (
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-center gap-3">
-                <AlertTriangle className="h-5 w-5 text-amber-600" />
-                <p className="text-sm text-amber-800">
-                  <strong>API Key Required:</strong> Please configure your Gemini API key in Settings.
-                </p>
-              </div>
-            )}
           </Card>
 
           {/* Right Side - Content Generation */}
-          <Card className="p-6 bg-card shadow-elevated border-0">
+          <Card className="p-6 bg-card shadow-lg border-0">
             <div className="mb-6">
-              <h3 className="text-xl font-bold mb-4 text-foreground">Generate Content</h3>
+              <h3 className="text-xl font-bold mb-4 text-gray-700">Generate Content</h3>
               
               {/* Content Type Tabs */}
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                <TabsList className="grid w-full grid-cols-4 mb-6">
-                  <TabsTrigger value="summary" className="flex items-center gap-2">
+                <TabsList className="grid w-full h-auto grid-cols-3 sm:grid-cols-6 gap-1 mb-6 bg-emerald-600">
+                  <TabsTrigger value="summary" className="relative flex items-center gap-2 text-white">
                     <FileText className="h-4 w-4" />
-                    Summary
+                    <div className="text-sm mr-2">Summary</div>
+                    <CreditPill type="summary" />
                   </TabsTrigger>
-                  <TabsTrigger value="mindmap" className="flex items-center gap-2">
+                  <TabsTrigger value="mindmap" className="relative flex items-center gap-2 text-white">
                     <Brain className="h-4 w-4" />
-                    Mindmap
+                    <div className="text-sm mr-2">Mindmap</div>
+                    <CreditPill type="mindmap" />
                   </TabsTrigger>
-                  <TabsTrigger value="quiz" className="flex items-center gap-2">
+                  <TabsTrigger value="quiz" className="relative flex items-center gap-2 text-white">
                     <HelpCircle className="h-4 w-4" />
-                    Quiz
+                   <div className="text-sm mr-2">Quiz</div>
+                    <CreditPill type="quiz" />
                   </TabsTrigger>
-                  <TabsTrigger value="flashcards" className="flex items-center gap-2">
-                    <BookOpen className="h-4 w-4" />
-                    Flashcards
+                  <TabsTrigger value="flashcards" className="relative flex items-center gap-2 text-white">
+                    <BookOpen className="h-4 w-4 " />
+                    <div className="text-sm mr-1">Flashcards</div>
+                    <CreditPill type="flashcards" />
+                  </TabsTrigger>
+                  <TabsTrigger value="video" className="relative flex items-center gap-2 text-white">
+                    <Clapperboard className="h-4 w-4" />
+                    <div className="text-sm mr-1">Video</div>
+                    <CreditPill type="video" />
+                  </TabsTrigger>
+                  <TabsTrigger value="slides" className="relative flex items-center gap-2 text-white">
+                    <Presentation className="h-4 w-4" />
+                    <div className="text-sm mr-1">Slides</div>
+                    <CreditPill type="slides" />
                   </TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="summary" className="space-y-4">
                   {hasResultsForTab() ? (
-                    <ResultsSection 
-                      results={results} 
-                      activeTab="summary" 
-                      onRegenerate={handleGenerateContent}
-                      isRegenerating={getLoadingState()}
-                    />
+                          <>
+                   <div className="space-y-4">
+  <ResultsSection allowShare
+    results={results} 
+    activeTab="summary" 
+    onRegenerate={handleGenerateContent}
+    isRegenerating={getLoadingState()}
+  />
+
+  <div className="flex justify-end gap-2">
+    <Button variant="secondary" onClick={handleGenerateContent}>
+      <FileText className="h-4 w-4 mr-2" />
+      Regenerate
+    </Button>
+    <Button variant="outline" onClick={handleClearAll}>
+      <Trash2 className="h-4 w-4 mr-2" />
+      Clear All
+    </Button>
+  </div>
+</div>
+
+                  </>
+
                   ) : (
                     <div className="text-center p-8">
                       <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
@@ -332,11 +473,12 @@ const InputSection: React.FC<InputSectionProps> = ({
                         Create a concise summary of your content with key points and insights.
                       </p>
                       <Button
-                        variant="hero"
+                        
                         size="lg"
                         onClick={handleGenerateContent}
-                        disabled={!hasApiKey || isProcessing || !hasContent() || getLoadingState()}
-                        className="w-full"
+                        disabled={isProcessing || !hasContent() || getLoadingState() || noCredits}
+                        className="px-6 py-2 w-full rounded text-white 
+                        bg-emerald-600"
                       >
                         {getLoadingState() ? (
                           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -345,13 +487,14 @@ const InputSection: React.FC<InputSectionProps> = ({
                         )}
                         Generate Summary
                       </Button>
+                      <CreditNote type="summary" />
                     </div>
                   )}
                 </TabsContent>
 
                 <TabsContent value="mindmap" className="space-y-4">
                   {hasResultsForTab() ? (
-                    <ResultsSection 
+                    <ResultsSection allowShare
                       results={results} 
                       activeTab="mindmap" 
                       onRegenerate={handleGenerateContent}
@@ -365,11 +508,11 @@ const InputSection: React.FC<InputSectionProps> = ({
                         Visualize the main concepts and their relationships in your content.
                       </p>
                       <Button
-                        variant="hero"
+                       
                         size="lg"
                         onClick={handleGenerateContent}
-                        disabled={!hasApiKey || isProcessing || !hasContent() || getLoadingState()}
-                        className="w-full"
+                        disabled={isProcessing || !hasContent() || getLoadingState() || noCredits}
+                        className="w-full bg-emerald-600 text-white"
                       >
                         {getLoadingState() ? (
                           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -378,13 +521,14 @@ const InputSection: React.FC<InputSectionProps> = ({
                         )}
                         Create Mindmap
                       </Button>
+                      <CreditNote type="mindmap" />
                     </div>
                   )}
                 </TabsContent>
 
                 <TabsContent value="quiz" className="space-y-4">
                   {hasResultsForTab() ? (
-                    <ResultsSection 
+                    <ResultsSection allowShare
                       results={results} 
                       activeTab="quiz" 
                       onRegenerate={handleGenerateContent}
@@ -398,11 +542,11 @@ const InputSection: React.FC<InputSectionProps> = ({
                         Test your knowledge with interactive multiple-choice questions.
                       </p>
                       <Button
-                        variant="hero"
+                       
                         size="lg"
                         onClick={handleGenerateContent}
-                        disabled={!hasApiKey || isProcessing || !hasContent() || getLoadingState()}
-                        className="w-full"
+                        disabled={isProcessing || !hasContent() || getLoadingState() || noCredits}
+                        className="w-full bg-emerald-600 text-white"
                       >
                         {getLoadingState() ? (
                           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -411,13 +555,14 @@ const InputSection: React.FC<InputSectionProps> = ({
                         )}
                         Generate Quiz
                       </Button>
+                      <CreditNote type="quiz" />
                     </div>
                   )}
                 </TabsContent>
 
                 <TabsContent value="flashcards" className="space-y-4">
                   {hasResultsForTab() ? (
-                    <ResultsSection 
+                    <ResultsSection allowShare
                       results={results} 
                       activeTab="flashcards" 
                       onRegenerate={handleGenerateContent}
@@ -431,11 +576,11 @@ const InputSection: React.FC<InputSectionProps> = ({
                         Build study cards with key terms and concepts for effective memorization.
                       </p>
                       <Button
-                        variant="hero"
+                        
                         size="lg"
                         onClick={handleGenerateContent}
-                        disabled={!hasApiKey || isProcessing || !hasContent() || getLoadingState()}
-                        className="w-full"
+                        disabled={isProcessing || !hasContent() || getLoadingState() || noCredits}
+                        className="w-full bg-emerald-600 text-white"
                       >
                         {getLoadingState() ? (
                           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -444,8 +589,27 @@ const InputSection: React.FC<InputSectionProps> = ({
                         )}
                         Create Flashcards
                       </Button>
+                      <CreditNote type="flashcards" />
                     </div>
                   )}
+                </TabsContent>
+
+                <TabsContent value="video" className="space-y-4">
+                  <ExplainerVideoPanel
+                    explainer={explainer}
+                    hasContent={hasContent()}
+                    disabled={isProcessing}
+                    onGenerate={handleGenerateVideo}
+                  />
+                </TabsContent>
+
+                <TabsContent value="slides" className="space-y-4">
+                  <PresentationPanel
+                    presentation={presentation}
+                    hasContent={hasContent()}
+                    disabled={isProcessing}
+                    onGenerate={handleGeneratePresentation}
+                  />
                 </TabsContent>
 
               </Tabs>
@@ -453,12 +617,12 @@ const InputSection: React.FC<InputSectionProps> = ({
 
             {/* Processing Status */}
             {isProcessing && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="bg-emerald-50 border border-emerald-400 rounded-lg p-4">
                 <div className="flex items-center gap-3">
-                  <Loader2 className="h-5 w-5 text-blue-600 animate-spin" />
+                  <Loader2 className="h-5 w-5 text-emerald-600 animate-spin" />
                   <div>
-                    <p className="text-sm font-medium text-blue-800">Processing...</p>
-                    <p className="text-xs text-blue-600">{processingStatus.message}</p>
+                    <p className="text-sm font-medium text-emerald-800">Processing...</p>
+                    <p className="text-xs text-emerald-700">{processingStatus.message}</p>
                   </div>
                 </div>
               </div>

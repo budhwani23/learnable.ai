@@ -29,7 +29,7 @@ const ApiKeyStatus = () => {
   return (
     <Badge
       variant={hasApiKey ? "default" : "destructive"}
-      className="flex items-center gap-1"
+      className="flex items-center gap-1 bg-green-500 hover:bg-green-500 "
     >
       {hasApiKey ? (
         <>

@@ -1,0 +1,20 @@
+# Keep secrets, local environments and build output out of the image.
+**/.env
+**/.env.*
+!**/.env.example
+.git
+.github
+.claude
+**/__pycache__
+**/*.pyc
+backend/.venv
+backend/venv
+backend/media
+backend/models
+backend/temp
+backend/logs
+backend/staticfiles
+frontend/node_modules
+frontend/dist
+presenton_data
+*.log

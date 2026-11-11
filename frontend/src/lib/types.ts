@@ -62,6 +62,45 @@ export interface MindmapOutput {
   content_type?: string;
 }
 
+/** Account type: teachers create and share to classes; students study and take shared quizzes. */
+export type Role = 'teacher' | 'student';
+
+/** Every generator has its own allowance of credits (3 by default). */
+export type ResourceType = 'summary' | 'mindmap' | 'quiz' | 'flashcards' | 'video' | 'slides';
+
+export const RESOURCE_TYPES: { id: ResourceType; label: string }[] = [
+  { id: 'summary', label: 'Summary' },
+  { id: 'mindmap', label: 'Mind map' },
+  { id: 'quiz', label: 'Quiz' },
+  { id: 'flashcards', label: 'Flashcards' },
+  { id: 'video', label: 'Explainer video' },
+  { id: 'slides', label: 'Slides' },
+];
+
+export interface CreditBalance {
+  limit: number;
+  used: number;
+  remaining: number;
+  /** Admins have unlimited credits: never charged or blocked. */
+  unlimited?: boolean;
+}
+
+export type Credits = Record<ResourceType, CreditBalance>;
+
+/** pending = on the waitlist, waiting for an admin to approve the account. */
+export type AccountStatus = 'pending' | 'approved' | 'rejected' | 'banned';
+
+export interface Me {
+  id: number;
+  username: string;
+  email: string;
+  role: Role;
+  is_admin: boolean;
+  status: AccountStatus;
+  status_reason: string;
+  credits: Credits;
+}
+
 // MCQ Quiz Types
 export interface MCQQuestion {
   question: string;
@@ -110,6 +149,74 @@ export interface FlashcardOutput {
   flashcards: Flashcard[];
   total_cards: number;
   content_type?: string;
+}
+
+// Explainer Video Types
+export type ExplainerJobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
+
+export interface ExplainerTranscriptBeat {
+  id: number;
+  narration: string;
+}
+
+export interface ExplainerJob {
+  id: string;
+  status: ExplainerJobStatus;
+  stage: string;
+  progress: number;
+  message: string;
+  error?: string | null;
+  title?: string | null;
+  transcript: ExplainerTranscriptBeat[];
+  source_type: string;
+  source_label: string;
+  focus?: string | null;
+  created_at: number;
+  updated_at: number;
+  has_video: boolean;
+}
+
+export interface ExplainerJobResponse {
+  success: boolean;
+  job: ExplainerJob;
+}
+
+// Presentation (slide deck) Types
+export interface PresentationJob {
+  id: string;
+  status: ExplainerJobStatus;
+  stage: string;
+  progress: number;
+  message: string;
+  error?: string | null;
+  title?: string | null;
+  source_type: string;
+  source_label: string;
+  focus?: string | null;
+  n_slides: number;
+  template: string;
+  tone: string;
+  slide_count: number;
+  has_pptx: boolean;
+  has_pdf: boolean;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface PresentationJobResponse {
+  success: boolean;
+  job: PresentationJob;
+}
+
+export interface PresentationOption {
+  id: string;
+  name: string;
+}
+
+export interface PresentationOptions {
+  success: boolean;
+  templates: PresentationOption[];
+  tones: PresentationOption[];
 }
 
 // Processing State Types

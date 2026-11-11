@@ -3,6 +3,7 @@
 
 import { API_CONFIG, API_ENDPOINTS, ERROR_MESSAGES } from './constants';
 import type {
+  Role,
   ApiResponse,
   SummarizeTextInput,
   SummarizeTextOutput,
@@ -15,57 +16,195 @@ import type {
   FlashcardInput,
   FlashcardMultimediaInput,
   FlashcardOutput,
+  ExplainerJob,
+  ExplainerJobResponse,
+  PresentationJob,
+  PresentationJobResponse,
+  PresentationOptions,
+  Me,
   ApiError
 } from './types';
 
+const FIELD_MESSAGES: Record<string, string> = {
+  username: 'Username must be 3 to 150 characters.',
+  email: 'Enter a valid email address, like name@example.com.',
+  password: 'Password must be at least 8 characters.',
+  role: 'Choose student or teacher.',
+};
+
+/** Turn a 422 validation error list ([{loc: [..., "username"], msg}]) into plain sentences. */
+function validationMessage(detail: unknown): string {
+  if (!Array.isArray(detail)) return 'Please check the details you entered.';
+  const fields = new Set<string>();
+  for (const item of detail) {
+    const loc = Array.isArray(item?.loc) ? item.loc : [];
+    const field = String(loc[loc.length - 1] ?? '');
+    if (field) fields.add(field);
+  }
+  const lines = [...fields].map((f) => FIELD_MESSAGES[f]).filter(Boolean);
+  return lines.length ? lines.join(' ') : 'Please check the details you entered.';
+}
+
+/** An Error carrying the HTTP status, with the server's own reason as the message. */
+export class HttpError extends Error {
+  constructor(message: string, public status: number) { super(message); }
+}
+
+/**
+ * Build an HttpError from a failed response, using the body's `error`/`detail` string when present
+ * and a friendly per-status fallback (401, 403, 404, other) otherwise.
+ */
+async function httpError(res: Response): Promise<HttpError> {
+  let reason = '';
+  try {
+    const body = await res.clone().json();
+    if (typeof body?.error === 'string') reason = body.error;
+    else if (typeof body?.detail === 'string') reason = body.detail;
+  } catch { /* not JSON */ }
+  const fallback = res.status === 401 ? 'Your session has expired. Please sign in again.'
+    : res.status === 403 ? "You don't have permission to do that."
+    : res.status === 404 ? "That couldn't be found. It may have been deleted or not shared with you."
+    : `The server couldn't complete this request (error ${res.status}). Please try again.`;
+  return new HttpError(reason || fallback, res.status);
+}
+
+/**
+ * HTTP client for the backend: stores JWT access/refresh tokens in localStorage, attaches them to
+ * authenticated calls, retries once after a token refresh on 401, and wraps every API endpoint.
+ */
 class ApiClient {
   private baseUrl: string;
   private timeout: number;
 
+  /** Read the base URL and timeout from API_CONFIG. */
   constructor() {
     this.baseUrl = API_CONFIG.BASE_URL;
     this.timeout = API_CONFIG.TIMEOUT;
   }
 
+  // =====================
+  // Auth token management
+  // =====================
+  private ACCESS_KEY = 'auth_access';
+  private REFRESH_KEY = 'auth_refresh';
+
+  /** Stored access token, or "" when signed out. */
+  private getAccess() { return localStorage.getItem(this.ACCESS_KEY) || ''; }
+  /** Stored refresh token, or "" when signed out. */
+  private getRefresh() { return localStorage.getItem(this.REFRESH_KEY) || ''; }
+  /** Save a new access/refresh token pair to localStorage. */
+  private setTokens(access: string, refresh: string) {
+    localStorage.setItem(this.ACCESS_KEY, access);
+    localStorage.setItem(this.REFRESH_KEY, refresh);
+  }
+  /** Remove both tokens from localStorage. */
+  private clearTokens() {
+    localStorage.removeItem(this.ACCESS_KEY);
+    localStorage.removeItem(this.REFRESH_KEY);
+  }
+  /** `Authorization: Bearer <access>` header, or no headers when there is no access token. */
+  private buildAuthHeaders(): HeadersInit {
+    const access = this.getAccess();
+    return access ? { Authorization: `Bearer ${access}` } : {};
+  }
+
+  /**
+   * Exchange the refresh token for a new token pair and store it.
+   * @returns true on success; false when there is no refresh token or the refresh fails.
+   */
+  private async refreshTokensOnce(): Promise<boolean> {
+    const refresh = this.getRefresh();
+    if (!refresh) return false;
+    try {
+      const res = await fetch(`${this.baseUrl}${API_ENDPOINTS.AUTH_REFRESH}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh }),
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (data?.access && data?.refresh) {
+        this.setTokens(data.access, data.refresh);
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Send a JSON request and parse the JSON response, throwing HttpError on non-2xx or an Error when the
+   * body has an `error` field. With `auth`, sends the bearer token and on 401 refreshes the tokens and
+   * retries once, clearing the tokens if the refresh fails.
+   */
   private async makeRequest<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    auth: boolean = false
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
-    
+
     const defaultOptions: RequestInit = {
       headers: {
         'Content-Type': 'application/json',
+        ...(auth ? this.buildAuthHeaders() : {}),
         ...options.headers,
       },
     };
 
     const finalOptions = { ...defaultOptions, ...options };
 
-    try {
+    /** Perform the request once and return the parsed body; throws on HTTP errors or an `error` field. */
+    const doFetch = async (): Promise<T> => {
       const response = await fetch(url, finalOptions);
-      
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw await httpError(response);
       }
-
       const data = await response.json();
-      
-      if (data.error) {
-        throw new Error(data.error);
+      if ((data as any).error) {
+        throw new Error((data as any).error);
       }
+      return data as T;
+    };
 
-      return data;
-    } catch (error) {
+    try {
+      return await doFetch();
+    } catch (error: any) {
+      // If unauthorized on an auth-required call, try refresh once
+      if (auth && (error as HttpError)?.status === 401) {
+        const refreshed = await this.refreshTokensOnce();
+        if (refreshed) {
+          const retryOptions: RequestInit = {
+            ...finalOptions,
+            headers: {
+              ...finalOptions.headers as HeadersInit,
+              ...this.buildAuthHeaders(),
+            },
+          };
+          const retryRes = await fetch(url, retryOptions);
+          if (!retryRes.ok) throw await httpError(retryRes);
+          const retryData = await retryRes.json();
+          if (retryData?.error) throw new Error(retryData.error);
+          return retryData as T;
+        }
+        this.clearTokens();
+      }
       console.error('API request failed:', error);
       throw this.handleError(error);
     }
   }
 
+  /**
+   * POST multipart form data via XMLHttpRequest (5-minute timeout) so upload progress can be reported
+   * through `onProgress` (0-100). Rejects with the server's `error`/`detail` message, or a friendly
+   * message on network errors, timeouts and aborts. Does not retry after a token refresh.
+   */
   private async makeFileRequest<T>(
     endpoint: string,
     formData: FormData,
-    onProgress?: (progress: number) => void
+    onProgress?: (progress: number) => void,
+    auth: boolean = false
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
     console.log('makeFileRequest called with URL:', url);
@@ -101,13 +240,21 @@ class ApiClient {
             }
           } else {
             console.error('XHR HTTP error - status:', xhr.status, 'response:', xhr.responseText);
-            reject(new Error(`HTTP error! status: ${xhr.status}`));
+            // Prefer the server's own reason ({error} or {detail}) over a bare status code.
+            let reason = '';
+            try {
+              const body = JSON.parse(xhr.responseText);
+              reason = typeof body?.error === 'string' ? body.error : typeof body?.detail === 'string' ? body.detail : '';
+            } catch { /* not JSON */ }
+            reject(new Error(reason || (xhr.status === 401
+              ? 'Your session has expired. Please sign in again.'
+              : `The server couldn't complete this request (error ${xhr.status}). Please try again.`)));
           }
         });
 
         xhr.addEventListener('error', () => {
           console.error('XHR error occurred');
-          reject(new Error('Network error occurred'));
+          reject(new Error("Couldn't reach the server. Check your connection and try again."));
         });
 
         xhr.addEventListener('timeout', () => {
@@ -121,6 +268,14 @@ class ApiClient {
         });
 
         xhr.open('POST', url, true);
+
+        // Attach Authorization header when required
+        if (auth) {
+          const access = this.getAccess();
+          if (access) {
+            xhr.setRequestHeader('Authorization', `Bearer ${access}`);
+          }
+        }
         
         // Don't set Content-Type header for FormData - let the browser set it with boundary
         console.log('Sending XHR request to:', url);
@@ -132,6 +287,7 @@ class ApiClient {
     }
   }
 
+  /** Normalise any thrown value into an Error (strings become the message; anything else is a network error). */
   private handleError(error: any): Error {
     if (error instanceof Error) {
       return error;
@@ -144,23 +300,81 @@ class ApiClient {
     return new Error(ERROR_MESSAGES.NETWORK_ERROR);
   }
 
+  // Public auth helpers
+  /** POST an auth form and surface the server's `detail` message on failure. */
+  private async authPost(endpoint: string, body: object, fallback: string) {
+    const res = await fetch(`${this.baseUrl}${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const detail = typeof data.detail === 'string' ? data.detail : null;
+      throw new Error(detail || (res.status === 422 ? validationMessage(data.detail) : fallback));
+    }
+    this.setTokens(data.access, data.refresh);
+    return data as { access: string; refresh: string };
+  }
+
+  /** Sign in and store the returned tokens; optionally sends the role the user is signing in as. */
+  async login(username: string, password: string, role?: Role) {
+    return this.authPost(API_ENDPOINTS.AUTH_LOGIN, { username, password, role }, 'Invalid credentials');
+  }
+
+  /** Create an account with the given role and store the returned tokens. */
+  async register(username: string, email: string, password: string, role: Role) {
+    return this.authPost(API_ENDPOINTS.AUTH_REGISTER, { username, email, password, role }, 'Registration failed');
+  }
+
+  /** Fetch the signed-in user's profile (role, approval status and credits). */
+  async me() {
+    return this.makeRequest<Me>(
+      API_ENDPOINTS.AUTH_ME,
+      { method: 'GET' },
+      true
+    );
+  }
+
+  // NEW: Generic authorized request helper using access token in localStorage
+  /** Authenticated JSON request to any API route; `payload` is sent as the body for non-GET methods. */
+  async authorizedRequest<T = any>(
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+    route: string,
+    payload?: any
+  ): Promise<T> {
+    const options: RequestInit = { method };
+    if (payload !== undefined && method !== 'GET') {
+      options.body = JSON.stringify(payload);
+    }
+    return this.makeRequest<T>(route, options, true);
+  }
+
+  // =====================
   // Health check
+  // =====================
+  /** Call the backend health-check endpoint (no auth). */
   async healthCheck(): Promise<ApiResponse> {
     return this.makeRequest<ApiResponse>(API_ENDPOINTS.HEALTH_CHECK);
   }
 
-  // Text summarization
+  // =====================
+  // Text summarization (AUTH)
+  // =====================
+  /** Summarise text content (JSON body, authenticated). */
   async summarizeText(input: SummarizeTextInput): Promise<SummarizeTextOutput> {
     return this.makeRequest<SummarizeTextOutput>(
       API_ENDPOINTS.SUMMARIZE_CONTENT,
       {
         method: 'POST',
         body: JSON.stringify(input),
-      }
+      },
+      true
     );
   }
 
-  // File-based summarization
+  // File-based summarization (AUTH)
+  /** Upload a single file for summarisation, reporting upload progress. */
   async summarizeFile(
     file: File,
     onProgress?: (progress: number) => void
@@ -171,11 +385,13 @@ class ApiClient {
     return this.makeFileRequest<SummarizeTextOutput>(
       API_ENDPOINTS.SUMMARIZE_CONTENT,
       formData,
-      onProgress
+      onProgress,
+      true
     );
   }
 
-  // Multimedia summarization
+  // Multimedia summarization (AUTH)
+  /** Summarise any combination of audio, video, document and text in one multipart upload. */
   async summarizeMultimedia(
     audioFile?: File,
     videoFile?: File,
@@ -201,22 +417,26 @@ class ApiClient {
     return this.makeFileRequest<SummarizeTextOutput>(
       API_ENDPOINTS.SUMMARIZE_CONTENT,
       formData,
-      onProgress
+      onProgress,
+      true
     );
   }
 
-  // Mindmap generation (text only)
+  // Mindmap generation (text only) (AUTH)
+  /** Generate a mindmap from text input (JSON body, authenticated). */
   async generateMindmap(input: MindmapInput): Promise<MindmapOutput> {
     return this.makeRequest<MindmapOutput>(
       API_ENDPOINTS.GENERATE_MINDMAP,
       {
         method: 'POST',
         body: JSON.stringify(input),
-      }
+      },
+      true
     );
   }
 
-  // Mindmap generation (multimedia)
+  // Mindmap generation (multimedia) (AUTH)
+  /** Generate a mindmap from uploaded audio/video/document files and/or a topic or text. */
   async generateMindmapMultimedia(
     audioFile?: File,
     videoFile?: File,
@@ -245,11 +465,13 @@ class ApiClient {
     return this.makeFileRequest<MindmapOutput>(
       API_ENDPOINTS.GENERATE_MINDMAP_MULTIMEDIA,
       formData,
-      onProgress
+      onProgress,
+      true
     );
   }
 
-  // MCQ Quiz generation (text only)
+  // MCQ Quiz generation (text only) (AUTH)
+  /** Generate a multiple-choice quiz from text input (JSON body, authenticated). */
   async generateMCQQuiz(input: MCQQuizInput): Promise<MCQQuizOutput> {
     console.log('API Client - generateMCQQuiz input:', input);
     console.log('API Client - JSON body:', JSON.stringify(input));
@@ -258,11 +480,13 @@ class ApiClient {
       {
         method: 'POST',
         body: JSON.stringify(input),
-      }
+      },
+      true
     );
   }
 
-  // MCQ Quiz generation (multimedia)
+  // MCQ Quiz generation (multimedia) (AUTH)
+  /** Generate a multiple-choice quiz of `numQuestions` (default 10) from uploaded files and/or text. */
   async generateMCQQuizMultimedia(
     audioFile?: File,
     videoFile?: File,
@@ -291,22 +515,26 @@ class ApiClient {
     return this.makeFileRequest<MCQQuizOutput>(
       API_ENDPOINTS.GENERATE_MCQ_QUIZ_MULTIMEDIA,
       formData,
-      onProgress
+      onProgress,
+      true
     );
   }
 
-  // Flashcard generation (text only)
+  // Flashcard generation (text only) (AUTH)
+  /** Generate flashcards from text input (JSON body, authenticated). */
   async generateFlashcards(input: FlashcardInput): Promise<FlashcardOutput> {
     return this.makeRequest<FlashcardOutput>(
       API_ENDPOINTS.GENERATE_FLASHCARDS,
       {
         method: 'POST',
         body: JSON.stringify(input),
-      }
+      },
+      true
     );
   }
 
-  // Flashcard generation (multimedia)
+  // Flashcard generation (multimedia) (AUTH)
+  /** Generate flashcards from uploaded audio/video/document files and/or text. */
   async generateFlashcardsMultimedia(
     audioFile?: File,
     videoFile?: File,
@@ -341,11 +569,138 @@ class ApiClient {
     return this.makeFileRequest<FlashcardOutput>(
       API_ENDPOINTS.GENERATE_FLASHCARDS_MULTIMEDIA,
       formData,
-      onProgress
+      onProgress,
+      true
+    );
+  }
+
+  // =====================
+  // AI explainer video (AUTH) — long-running background job
+  // =====================
+  /**
+   * Start a background explainer-video job from the given files/text and optional focus.
+   * @returns The created job (poll it with getExplainerJob).
+   */
+  async startExplainerVideo(
+    audioFile?: File,
+    videoFile?: File,
+    documentFile?: File,
+    text?: string,
+    focus?: string,
+    onProgress?: (progress: number) => void
+  ): Promise<ExplainerJob> {
+    const formData = new FormData();
+    formData.append('data', JSON.stringify({
+      ...(text && text.trim() ? { text } : {}),
+      ...(focus && focus.trim() ? { focus } : {}),
+    }));
+    if (audioFile) formData.append('audio_file', audioFile);
+    if (videoFile) formData.append('video_file', videoFile);
+    if (documentFile) formData.append('document_file', documentFile);
+
+    const res = await this.makeFileRequest<ExplainerJobResponse>(
+      API_ENDPOINTS.EXPLAINER_JOBS,
+      formData,
+      onProgress,
+      true
+    );
+    return res.job;
+  }
+
+  /** Fetch the current status of an explainer-video job. */
+  async getExplainerJob(jobId: string): Promise<ExplainerJob> {
+    const res = await this.makeRequest<ExplainerJobResponse>(
+      `${API_ENDPOINTS.EXPLAINER_JOBS}/${encodeURIComponent(jobId)}`,
+      { method: 'GET' },
+      true
+    );
+    return res.job;
+  }
+
+  // Authenticated binary download (a <video>/<iframe> can't send the Authorization header).
+  /**
+   * GET a binary file with the bearer token, retrying once after a token refresh on 401.
+   * @param what Human-readable name used in the error message.
+   */
+  private async fetchAuthorizedBlob(path: string, what: string): Promise<Blob> {
+    const url = `${this.baseUrl}${path}`;
+    let res = await fetch(url, { headers: this.buildAuthHeaders() });
+    if (res.status === 401 && (await this.refreshTokensOnce())) {
+      res = await fetch(url, { headers: this.buildAuthHeaders() });
+    }
+    if (!res.ok) throw new Error(`Could not load the ${what} (status ${res.status})`);
+    return res.blob();
+  }
+
+  /** Download a finished explainer video as a Blob. */
+  async fetchExplainerVideo(jobId: string): Promise<Blob> {
+    return this.fetchAuthorizedBlob(
+      `${API_ENDPOINTS.EXPLAINER_JOBS}/${encodeURIComponent(jobId)}/video`, 'video'
+    );
+  }
+
+  // =====================
+  // Presentations / slide decks (AUTH) — background job via self-hosted Presenton
+  // =====================
+  /** Fetch the available slide templates and tones. */
+  async getPresentationOptions(): Promise<PresentationOptions> {
+    return this.makeRequest<PresentationOptions>(API_ENDPOINTS.PRESENTATION_OPTIONS, { method: 'GET' }, true);
+  }
+
+  /**
+   * Start a background slide-deck job from the given files/text with slide count, template, tone and focus.
+   * @returns The created job (poll it with getPresentationJob).
+   */
+  async startPresentation(
+    params: {
+      audioFile?: File;
+      videoFile?: File;
+      documentFile?: File;
+      text?: string;
+      focus?: string;
+      nSlides: number;
+      template: string;
+      tone: string;
+    },
+    onProgress?: (progress: number) => void
+  ): Promise<PresentationJob> {
+    const { audioFile, videoFile, documentFile, text, focus, nSlides, template, tone } = params;
+    const formData = new FormData();
+    formData.append('data', JSON.stringify({
+      ...(text && text.trim() ? { text } : {}),
+      ...(focus && focus.trim() ? { focus } : {}),
+      n_slides: nSlides,
+      template,
+      tone,
+    }));
+    if (audioFile) formData.append('audio_file', audioFile);
+    if (videoFile) formData.append('video_file', videoFile);
+    if (documentFile) formData.append('document_file', documentFile);
+
+    const res = await this.makeFileRequest<PresentationJobResponse>(
+      API_ENDPOINTS.PRESENTATION_JOBS, formData, onProgress, true
+    );
+    return res.job;
+  }
+
+  /** Fetch the current status of a slide-deck job. */
+  async getPresentationJob(jobId: string): Promise<PresentationJob> {
+    const res = await this.makeRequest<PresentationJobResponse>(
+      `${API_ENDPOINTS.PRESENTATION_JOBS}/${encodeURIComponent(jobId)}`, { method: 'GET' }, true
+    );
+    return res.job;
+  }
+
+  /** Download a finished deck as PPTX or its PDF preview as a Blob. */
+  async fetchPresentationFile(jobId: string, format: 'pptx' | 'pdf'): Promise<Blob> {
+    return this.fetchAuthorizedBlob(
+      `${API_ENDPOINTS.PRESENTATION_JOBS}/${encodeURIComponent(jobId)}/file?format=${format}`,
+      format === 'pdf' ? 'PDF preview' : 'presentation'
     );
   }
 
   // Process all types (summary, mindmap, quiz, flashcards) from multimedia
+  /** Generate summary, mindmap, quiz (10 questions) and flashcards in parallel from the same input. */
   async processMultimedia(
     audioFile?: File,
     videoFile?: File,

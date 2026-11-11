@@ -48,6 +48,7 @@
     "date-fns": "^3.6.0",
     "embla-carousel-react": "^8.3.0",
     "input-otp": "^1.2.4",
+    "lucide": "^0.542.0",
     "lucide-react": "^0.462.0",
     "mermaid": "^11.9.0",
     "next-themes": "^0.3.0",
@@ -67,6 +68,9 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@babel/cli": "^7.28.3",
+    "@babel/core": "^7.28.4",
+    "@babel/preset-typescript": "^7.27.1",
     "@eslint/js": "^9.9.0",
     "@tailwindcss/typography": "^0.5.15",
     "@types/node": "^22.5.5",

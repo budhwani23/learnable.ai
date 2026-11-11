@@ -325,26 +325,98 @@ Maintain the original tone and style while making the content more engaging and 
 LEARNING_PATH_PROMPT = """
 Create a structured learning path based on the given content.
 Return ONLY a valid JSON object with the following structure:
-{
+{{
     "title": "Learning Path Title",
     "description": "Overview of the learning journey",
     "estimated_duration": "X hours/days/weeks",
     "prerequisites": ["Prerequisite 1", "Prerequisite 2"],
     "modules": [
-        {
+        {{
             "title": "Module title",
             "description": "What this module covers",
             "duration": "Estimated time",
             "objectives": ["Objective 1", "Objective 2"],
             "resources": ["Resource 1", "Resource 2"]
-        }
+        }}
     ],
     "assessment_points": [
-        {
+        {{
             "type": "quiz|project|discussion",
             "description": "Assessment description"
-        }
+        }}
     ],
     "next_steps": ["Next learning area 1", "Next learning area 2"]
-}
+}}
+"""
+
+# ==============================
+# New: YouTube URL-based prompts
+# ==============================
+
+# Summary from YouTube URL (no transcript). The model should access and analyze the content.
+YOUTUBE_URL_SUMMARY_PROMPT = """
+You are a professional summarizer. Access and analyze the content at the given YouTube URL and produce a clear, structured summary.
+
+Instructions:
+- Do NOT provide a transcript; provide a summary.
+- Focus on main ideas, key points, and the central message.
+- Be concise but comprehensive.
+
+URL: {input}
+"""
+
+# Mindmap JSON from YouTube URL
+YOUTUBE_URL_MINDMAP_PROMPT = """
+You are a mindmap generator. Access and analyze the content at the given YouTube URL and return ONLY a valid JSON object with this exact structure:
+{{
+    "name": "Main Topic",
+    "children": [
+        {{"name": "Subtopic", "children": [{{"name": "Detail"}}]}} 
+    ]
+}}
+
+Requirements:
+- Include 3-5 main subtopics with 2-4 details each
+- Use concise names suitable for D3.js tree visualization
+- Return ONLY the JSON, nothing else
+
+URL: {input}
+"""
+
+# Flashcards JSON array from YouTube URL
+YOUTUBE_URL_FLASHCARD_PROMPT = """
+You are a flashcard generator. Access and analyze the content at the given YouTube URL and return ONLY a valid JSON array of flashcards with this exact structure:
+[
+    {{
+        "front": "Question or concept",
+        "back": "Answer or explanation",
+        "category": "Definition|Concept|Example|Process|Fact",
+        "difficulty": "easy|medium|hard"
+    }}
+]
+
+Requirements:
+- Create 10-15 flashcards
+- Cover key concepts and definitions
+- Return ONLY the JSON array, nothing else
+
+URL: {input}
+"""
+
+# MCQ JSON from YouTube URL
+
+def get_youtube_url_mcq_prompt(num_questions: int) -> str:
+    return f"""
+You are an MCQ quiz generator. Access and analyze the content at the given YouTube URL and return questions in this exact format:
+- Question 1: [question text]
+- Option A: [option text]
+- Option B: [option text]
+- Option C: [option text]
+- Option D: [option text]
+- Correct Answer: [A/B/C/D]
+- Explanation: [brief explanation]
+
+Continue this pattern for all {num_questions} questions. Be accurate and educational.
+
+URL: {{input}}
 """ 

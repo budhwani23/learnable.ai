@@ -1,8 +1,7 @@
 import { useState, useMemo } from 'react';
-import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Brain, RotateCcw, Download } from 'lucide-react';
+import { Brain, Download } from 'lucide-react';
 import MermaidDiagram from '@/components/MermaidDiagram';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { convertMindmapToMermaid, convertMindmapToRadialMermaid } from '@/utils/mindmapToMermaid';
@@ -11,9 +10,10 @@ import type { MindmapOutput } from '@/lib/types';
 interface MindmapViewerProps {
   mindmap: MindmapOutput;
   className?: string;
+  zoomLevel?: number;
 }
 
-const MindmapViewer: React.FC<MindmapViewerProps> = ({ mindmap, className = "" }) => {
+const MindmapViewer: React.FC<MindmapViewerProps> = ({ mindmap, className = "", zoomLevel = 1 }) => {
   const [layout, setLayout] = useState<'vertical' | 'horizontal'>('vertical');
 
   const mermaidChart = useMemo(() => {
@@ -58,71 +58,63 @@ const MindmapViewer: React.FC<MindmapViewerProps> = ({ mindmap, className = "" }
 
   if (!mindmap?.topic || !mindmap?.mindmap) {
     return (
-      <Card className={`p-6 bg-gradient-card shadow-card border-0 ${className}`}>
+      <div className={`${className}`}>
         <div className="text-center text-muted-foreground">
           <Brain className="h-12 w-12 mx-auto mb-4 opacity-50" />
           <p>Invalid mindmap data</p>
         </div>
-      </Card>
+      </div>
     );
   }
 
   return (
-    <Card className={`p-6 bg-gradient-card shadow-card border-0 ${className}`}>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h3 className="text-2xl font-bold text-foreground mb-2">
-            {mindmap.topic}
-          </h3>
-          <p className="text-muted-foreground">
-            Visual representation of key concepts and their relationships
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Badge variant="outline" className="flex items-center gap-1">
-            <Brain className="h-3 w-3" />
-            Mindmap
-          </Badge>
-        </div>
-      </div>
-
+    <div className={`${className}`}>
+      {/* Layout controls - NOT affected by zoom */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex gap-2">
-          <Button
-            variant={layout === 'vertical' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setLayout('vertical')}
-          >
-            Vertical Layout
-          </Button>
           <Button
             variant={layout === 'horizontal' ? 'default' : 'outline'}
             size="sm"
             onClick={() => setLayout('horizontal')}
           >
+            Vertical Layout
+          </Button>
+          <Button
+            variant={layout === 'vertical' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setLayout('vertical')}
+          >
             Horizontal Layout
           </Button>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleDownload}
-        >
+        <Button variant="outline" size="sm" onClick={handleDownload}>
           <Download className="h-4 w-4 mr-2" />
           Download SVG
         </Button>
       </div>
 
-      <div className="bg-background/50 p-6 rounded-lg border border-border/50">
-        <ErrorBoundary>
-          <MermaidDiagram 
-            chart={mermaidChart}
-            className="w-full"
-          />
-        </ErrorBoundary>
+      {/* Zoomable diagram content ONLY - separate from controls */}
+      <div className="mindmap-diagram-wrapper">
+        <div
+          className="mindmap-zoom-content"
+          style={{
+            transform: `scale(${zoomLevel})`,
+            transformOrigin: 'center top',
+            transition: 'transform 0.2s ease',
+            width: '100%',
+            padding: '20px'
+          }}
+        >
+          <ErrorBoundary>
+            <MermaidDiagram
+              chart={mermaidChart}
+              className="w-full"
+            />
+          </ErrorBoundary>
+        </div>
       </div>
-    </Card>
+    </div>
   );
 };
 
-export default MindmapViewer; 
+export default MindmapViewer;

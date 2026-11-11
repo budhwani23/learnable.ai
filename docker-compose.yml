@@ -1,0 +1,49 @@
+# Sidecar services for learnable.ai.
+#
+# Presenton (https://github.com/presenton/presenton, Apache-2.0) generates the
+# student slide decks. Start it with the backend's env file so it reuses the
+# same Gemini key:
+#
+#   docker compose --env-file backend/.env up -d presenton
+#
+# The backend must be running (port 8000) for slide images: Presenton calls its
+# /api/presentations/image-proxy endpoint.
+#
+# Local development runs Presenton in single-user mode (DISABLE_AUTH) and binds
+# it to 127.0.0.1 only. For any shared/production deployment, remove
+# DISABLE_AUTH, finish the admin setup in Presenton's UI, create an API key under
+# Admin -> API keys, and set PRESENTON_API_KEY in backend/.env.
+services:
+  presenton:
+    image: ghcr.io/presenton/presenton:latest
+    container_name: learnable-presenton
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5001:80"
+    volumes:
+      - ./presenton_data:/app_data
+    environment:
+      # Slide text is written by qwen-3.8-27b on Cerebras through the backend's
+      # /llm-proxy endpoint (non-streaming, retries, JSON checked; backend on port 8000).
+      # PRESENTON_LLM=cerebras uses Presenton's own Cerebras client instead, and
+      # PRESENTON_LLM=google goes back to Gemini (GOOGLE_API_KEY / PRESENTON_GOOGLE_MODEL).
+      LLM: ${PRESENTON_LLM:-custom}
+      CUSTOM_LLM_URL: ${PRESENTON_LLM_URL:-http://host.docker.internal:8000/api/presentations/llm-proxy/v1}
+      CUSTOM_LLM_API_KEY: ${PRESENTON_IMAGE_PROXY_KEY:-}
+      CUSTOM_MODEL: ${CEREBRAS_MODEL:-qwen-3.8-27b}
+      CEREBRAS_API_KEY: ${CEREBRAS_API_KEY:-}
+      CEREBRAS_MODEL: ${CEREBRAS_MODEL:-qwen-3.8-27b}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GOOGLE_MODEL: ${PRESENTON_GOOGLE_MODEL:-models/gemini-3.5-flash-lite}
+      # Slide images go through the backend's /image-proxy endpoint, which generates
+      # them with FLUX Klein on NVIDIA's API (NVIDIA_API_KEY in backend/.env).
+      IMAGE_PROVIDER: ${PRESENTON_IMAGE_PROVIDER:-openai_compatible}
+      OPENAI_COMPAT_IMAGE_BASE_URL: ${PRESENTON_IMAGE_BASE_URL:-http://host.docker.internal:8000/api/presentations/image-proxy/v1}
+      OPENAI_COMPAT_IMAGE_API_KEY: ${PRESENTON_IMAGE_PROXY_KEY:?set PRESENTON_IMAGE_PROXY_KEY in backend/.env}
+      OPENAI_COMPAT_IMAGE_MODEL: nvidia-flux
+      PRESENTON_PUBLIC_URL: http://localhost:5001
+      # Keep student content private: don't publish decks to Presenton's community gallery.
+      PRESENTON_COMMUNITY_ENABLED: "false"
+      DISABLE_AUTH: ${PRESENTON_DISABLE_AUTH:-true}
+      # Set PRESENTON_DISABLE_IMAGES=true to use placeholders (saves NVIDIA API credits).
+      DISABLE_IMAGE_GENERATION: ${PRESENTON_DISABLE_IMAGES:-false}

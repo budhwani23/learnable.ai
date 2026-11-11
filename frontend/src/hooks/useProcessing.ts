@@ -3,10 +3,11 @@
 
 import { useState, useCallback } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { useApiKey } from './useApiKey';
 import { useFileUpload } from './useFileUpload';
 import apiClient from '@/lib/api';
-import { PROCESSING_STATES, ERROR_MESSAGES } from '@/lib/constants';
+import { toast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
+import { PROCESSING_STATES } from '@/lib/constants';
 import type { 
   ProcessingStatus, 
   ProcessingResults, 
@@ -16,6 +17,12 @@ import type {
   UploadedFile
 } from '@/lib/types';
 
+/**
+ * Processing state and React Query mutations for generating study resources (all-in-one, summary,
+ * mindmap, quiz, flashcards) from the uploaded audio/video/document files or text. Failures set an
+ * error status and show a toast; every mutation refreshes the user's credits when it settles.
+ * @param uploadedFiles Files to send; the first audio, video and document file are used.
+ */
 export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
   const [processingStatus, setProcessingStatus] = useState<ProcessingStatus>({
     state: PROCESSING_STATES.IDLE,
@@ -24,10 +31,24 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
   });
 
   const [results, setResults] = useState<ProcessingResults | null>(null);
-  const { validateApiKey } = useApiKey();
   const { updateFileStatus } = useFileUpload();
+  // Each generation uses (or, on failure, refunds) a credit: keep the balance shown in sync.
+  const { refreshUser } = useAuth();
+
+  // Tell the user when generation fails (quota, server error, network...), instead of
+  // silently re-enabling the button.
+  /** Set an error status and show a destructive toast; quota/rate-limit errors get a friendly "busy" message, others are trimmed to 300 chars. */
+  const reportFailure = useCallback((error: Error) => {
+    const raw = error?.message || '';
+    const message = /\b429\b|quota|ResourceExhausted|rate.?limit/i.test(raw)
+      ? 'The AI service is busy or out of quota right now. Please try again in a few minutes.'
+      : (raw || 'Something went wrong. Please try again.').slice(0, 300);
+    setProcessingStatus({ state: PROCESSING_STATES.ERROR, progress: 0, message: '', error: message } as ProcessingStatus);
+    toast({ title: "Couldn't generate that", description: message, variant: 'destructive' });
+  }, []);
 
   // Update processing status
+  /** Update the processing state, keeping the previous progress/message when they are not given. */
   const updateStatus = useCallback((
     state: ProcessingStatus['state'],
     progress?: number,
@@ -44,6 +65,7 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
   }, []);
 
   // Reset processing state
+  /** Return to idle and clear all results. */
   const resetProcessing = useCallback(() => {
     setProcessingStatus({
       state: PROCESSING_STATES.IDLE,
@@ -58,8 +80,6 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
   // Multimedia processing mutation
   const processMultimediaMutation = useMutation({
     mutationFn: async (text?: string) => {
-      validateApiKey();
-      
       const audioFiles = uploadedFiles.filter(f => 
         ['.mp3', '.wav', '.m4a', '.flac', '.aac', '.ogg'].includes(f.extension)
       );
@@ -103,14 +123,14 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
       updateStatus(PROCESSING_STATES.SUCCESS, 100, 'All resources generated successfully!');
     },
     onError: (error: Error) => {
-      updateStatus(PROCESSING_STATES.ERROR, 0, '', error.message);
+      reportFailure(error);
     },
+    onSettled: () => { refreshUser(); },
   });
 
   // Individual processing mutations
   const summarizeMultimediaMutation = useMutation({
     mutationFn: async (text?: string) => {
-      validateApiKey();
       updateStatus(PROCESSING_STATES.PROCESSING, 0, 'Generating summary...');
       
       const audioFile = uploadedFiles.find(f => 
@@ -143,13 +163,13 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
       updateStatus(PROCESSING_STATES.SUCCESS, 100, 'Summary generated successfully!');
     },
     onError: (error: Error) => {
-      updateStatus(PROCESSING_STATES.ERROR, 0, '', error.message);
+      reportFailure(error);
     },
+    onSettled: () => { refreshUser(); },
   });
 
   const generateMindmapMutation = useMutation({
     mutationFn: async (input: MindmapInput | string | undefined) => {
-      validateApiKey();
       updateStatus(PROCESSING_STATES.PROCESSING, 0, 'Generating mindmap...');
       
       // Always use multimedia endpoint
@@ -185,13 +205,13 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
       updateStatus(PROCESSING_STATES.SUCCESS, 100, 'Mindmap generated successfully!');
     },
     onError: (error: Error) => {
-      updateStatus(PROCESSING_STATES.ERROR, 0, '', error.message);
+      reportFailure(error);
     },
+    onSettled: () => { refreshUser(); },
   });
 
   const generateQuizMutation = useMutation({
     mutationFn: async (input: MCQQuizInput | { content?: string; numQuestions: number }) => {
-      validateApiKey();
       updateStatus(PROCESSING_STATES.PROCESSING, 0, 'Generating quiz questions...');
       
       // Always use multimedia endpoint
@@ -228,14 +248,14 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
       updateStatus(PROCESSING_STATES.SUCCESS, 100, 'Quiz generated successfully!');
     },
     onError: (error: Error) => {
-      updateStatus(PROCESSING_STATES.ERROR, 0, '', error.message);
+      reportFailure(error);
     },
+    onSettled: () => { refreshUser(); },
   });
 
   const generateFlashcardsMutation = useMutation({
     mutationFn: async (input: FlashcardInput | string) => {
       console.log('generateFlashcardsMutation called with input:', input);
-      validateApiKey();
       updateStatus(PROCESSING_STATES.PROCESSING, 0, 'Generating flashcards...');
       
       // Always use multimedia endpoint
@@ -271,11 +291,13 @@ export const useProcessing = (uploadedFiles: UploadedFile[] = []) => {
       updateStatus(PROCESSING_STATES.SUCCESS, 100, 'Flashcards generated successfully!');
     },
     onError: (error: Error) => {
-      updateStatus(PROCESSING_STATES.ERROR, 0, '', error.message);
+      reportFailure(error);
     },
+    onSettled: () => { refreshUser(); },
   });
 
   // Cancel processing
+  /** Mark processing as cancelled (idle, 0%). Does not abort an in-flight request. */
   const cancelProcessing = useCallback(() => {
     updateStatus(PROCESSING_STATES.IDLE, 0, 'Processing cancelled');
   }, [updateStatus]);

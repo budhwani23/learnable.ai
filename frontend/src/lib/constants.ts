@@ -4,9 +4,9 @@ export const is_dev = import.meta.env.DEV;
 
 // API Configuration
 export const API_CONFIG = {
-  BASE_URL: is_dev 
-    ? 'http://localhost:8000/api' 
-    : 'https://your-production-domain.com/api', // Update this with your production URL
+  // VITE_API_URL overrides; production serves the API from the same origin as the app.
+  BASE_URL: (import.meta.env.VITE_API_URL as string | undefined)
+    || (is_dev ? 'http://localhost:8000/api' : '/api'),
   TIMEOUT: 300000, // 5 minutes for large file uploads
   MAX_FILE_SIZE: 50 * 1024 * 1024, // 50MB
 };
@@ -49,7 +49,14 @@ export const API_ENDPOINTS = {
   GENERATE_MCQ_QUIZ_MULTIMEDIA: '/learning/generate-mcq-quiz-multimedia',
   GENERATE_FLASHCARDS: '/learning/generate-flashcards',
   GENERATE_FLASHCARDS_MULTIMEDIA: '/learning/generate-flashcards-multimedia',
+  EXPLAINER_JOBS: '/explainer/jobs',
+  PRESENTATION_JOBS: '/presentations/jobs',
+  PRESENTATION_OPTIONS: '/presentations/options',
   HEALTH_CHECK: '/learning/hello',
+  AUTH_LOGIN: '/users/auth/login',
+  AUTH_REGISTER: '/users/auth/register',
+  AUTH_REFRESH: '/users/auth/refresh',
+  AUTH_ME: '/users/auth/me',
 };
 
 // Processing states
@@ -63,8 +70,8 @@ export const PROCESSING_STATES = {
 
 // Error messages
 export const ERROR_MESSAGES = {
-  FILE_TOO_LARGE: 'File size exceeds the maximum limit of 50MB',
-  UNSUPPORTED_FILE_TYPE: 'This file type is not supported',
+  FILE_TOO_LARGE: 'This file is larger than the 50 MB limit.',
+  UNSUPPORTED_FILE_TYPE: 'This file type is not supported. Use a PDF or Word document, or an audio or video file.',
   API_KEY_MISSING: 'API key is required. Please configure it in Settings.',
   NETWORK_ERROR: 'Network error. Please check your connection.',
   PROCESSING_ERROR: 'Error processing your file. Please try again.',

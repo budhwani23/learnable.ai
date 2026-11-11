@@ -8,19 +8,19 @@ import tempfile
 from typing import Dict, Any, List, Optional
 import json
 from pydantic import BaseModel
+from users.security import jwt_auth
+from django.conf import settings
 
 from .utils import poll_for_transcript
-from core.gemini import GeminiService
 from dotenv import load_dotenv
 load_dotenv()
 
 router = Router()
 
-# Initialize Gemini service
-gemini_service = GeminiService(model_name="gemini-1.5-pro", temperature=0.7)
 
 
-@router.post("/transcribe-audio")
+# Calls the paid Rev.ai API, so only signed-in, approved users may use it.
+@router.post("/transcribe-audio", auth=jwt_auth)
 def transcribe_audio(request, audio_file: UploadedFile = File(...)):
     """
     Upload audio file, store it temporarily, and transcribe using Rev.ai
@@ -86,15 +86,3 @@ def transcribe_audio(request, audio_file: UploadedFile = File(...)):
                 
     except Exception as e:
         return {"error": f"An error occurred: {str(e)}"}
-
-
-
-    
-    
-
-    
-    
-
-
-
-
