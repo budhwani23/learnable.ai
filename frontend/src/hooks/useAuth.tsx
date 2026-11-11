@@ -89,7 +89,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isTeacher: user?.role === 'teacher',
     isApproved: user?.status === 'approved',
     isAdmin: !!user?.is_admin,
-    creditsLeft: (type: ResourceType) => user?.credits?.[type]?.remaining ?? 0,
+    creditsLeft: (type: ResourceType) => {
+      const c = user?.credits?.[type];
+      return c?.unlimited ? Infinity : c?.remaining ?? 0;
+    },
     loading,
     login,
     register,

@@ -114,8 +114,8 @@ export default function UsersTab() {
                 <TableCell className="text-right">{u.generations ?? 0}</TableCell>
                 <TableCell className="hidden xl:table-cell text-xs text-muted-foreground">
                   {RESOURCE_TYPES.map(r => (
-                    <span key={r.id} className={u.credits[r.id].remaining === 0 ? "text-red-600" : ""} title={r.label}>
-                      {r.label.split(" ")[0].slice(0, 5)} {u.credits[r.id].remaining}{" "}
+                    <span key={r.id} className={u.credits[r.id].remaining === 0 && !u.credits[r.id].unlimited ? "text-red-600" : ""} title={r.label}>
+                      {r.label.split(" ")[0].slice(0, 5)} {u.credits[r.id].unlimited ? "∞" : u.credits[r.id].remaining}{" "}
                     </span>
                   ))}
                 </TableCell>

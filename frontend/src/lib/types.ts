@@ -81,6 +81,8 @@ export interface CreditBalance {
   limit: number;
   used: number;
   remaining: number;
+  /** Admins have unlimited credits: never charged or blocked. */
+  unlimited?: boolean;
 }
 
 export type Credits = Record<ResourceType, CreditBalance>;
