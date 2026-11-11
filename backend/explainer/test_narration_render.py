@@ -1,10 +1,15 @@
 """Tests for local narration, empty-answer handling and render guards in the explainer pipeline."""
+import importlib.util
 import os
 import tempfile
+import unittest
 import wave
 from unittest import mock
 
 from django.test import SimpleTestCase
+
+# numpy comes with the video extras (requirements-video.txt), which CI's test job doesn't install.
+HAS_NUMPY = importlib.util.find_spec("numpy") is not None
 
 from core import cerebras
 from explainer import pipeline as P
@@ -98,6 +103,7 @@ class NarrationProviderTests(SimpleTestCase):
             self.assertEqual(p.tts_segment("Hello there.", 1), "seg.wav")
         gemini.assert_called_once()
 
+    @unittest.skipUnless(HAS_NUMPY, "needs numpy (installed with requirements-video.txt)")
     def test_kokoro_writes_24khz_mono_wav(self):
         """synthesize() writes 24 kHz mono 16-bit audio, joining sentences with short pauses."""
         import numpy as np
