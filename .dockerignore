@@ -10,6 +10,7 @@
 backend/.venv
 backend/venv
 backend/media
+backend/models
 backend/temp
 backend/logs
 backend/staticfiles

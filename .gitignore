@@ -434,3 +434,6 @@ backend/media/
 
 # Presenton sidecar runtime data (docker volume)
 presenton_data/
+
+# Local narration model files (downloaded on first use / baked into the Docker image)
+backend/models/

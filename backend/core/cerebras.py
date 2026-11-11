@@ -96,11 +96,18 @@ def chat(
     timeout: Optional[int] = None,
     attempts: int = 4,
     model: Optional[str] = None,
+    reasoning_effort: Optional[str] = None,
 ) -> str:
     """
     One chat completion on Cerebras. ``content`` is a string or a list of
     OpenAI content parts (text / image_url). Returns the answer text (the model's
     hidden reasoning is not included). Retries 429/5xx and network errors.
+
+    ``reasoning_effort`` ("low" | "medium" | "high") caps qwen's hidden reasoning.
+    qwen's reasoning counts against max tokens: on long tasks (e.g. writing a whole
+    Manim scene) it can use every token and return an empty answer with
+    finish_reason "length". That case is retried once with low effort and a larger
+    limit, and raises CerebrasError rather than silently returning "".
     """
     if not is_configured():
         raise CerebrasError("Missing CEREBRAS_API_KEY in environment")
@@ -115,5 +122,18 @@ def chat(
     }
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
+    if reasoning_effort:
+        payload["reasoning_effort"] = reasoning_effort
     data = complete(payload, timeout=timeout, attempts=attempts)
-    return (data["choices"][0]["message"].get("content") or "").strip()
+    choice = data["choices"][0]
+    answer = (choice["message"].get("content") or "").strip()
+    if not answer and choice.get("finish_reason") == "length":
+        logger.warning("Cerebras reasoning used all %s tokens with no answer; retrying with low effort",
+                       payload["max_completion_tokens"])
+        payload["reasoning_effort"] = "low"
+        payload["max_completion_tokens"] = max(payload["max_completion_tokens"] * 2, 32000)
+        choice = complete(payload, timeout=timeout, attempts=attempts)["choices"][0]
+        answer = (choice["message"].get("content") or "").strip()
+        if not answer:
+            raise CerebrasError("The model ran out of tokens before answering")
+    return answer
