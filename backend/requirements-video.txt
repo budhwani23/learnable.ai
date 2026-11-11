@@ -4,3 +4,5 @@
 # and point MANIM_PYTHON at another interpreter that already has manim installed.
 manim==0.19.2
 google-genai>=1.20,<4
+# Local narration (Kokoro-82M, Apache-2.0): ONNX on CPU, no API key or daily quota
+kokoro-onnx>=0.4,<0.6

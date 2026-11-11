@@ -39,9 +39,17 @@ RUN apt-get update \
  && apt-get autoremove -y \
  && rm -rf /var/lib/apt/lists/* /usr/share/doc/* /usr/share/man/*
 
-# Cloud defaults: 720p final render, 480p quality-check previews (override per environment).
+# Local narration model (Kokoro-82M int8 + voices, ~116 MB), baked in so the server never
+# downloads it at runtime.
+RUN mkdir -p /app/backend/models/kokoro \
+ && python -c "import urllib.request as u; b='https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/'; [u.urlretrieve(b + f, '/app/backend/models/kokoro/' + f) for f in ('kokoro-v1.0.int8.onnx', 'voices-v1.0.bin')]"
+ENV KOKORO_AUTO_DOWNLOAD=false \
+    EXPLAINER_TTS_PROVIDER=kokoro
+
+# Cloud defaults: 720p. Previews render at the final quality, so a preview that passes
+# review is used as the final video instead of being rendered a second time.
 ENV EXPLAINER_FINAL_QUALITY=-qm \
-    EXPLAINER_PREVIEW_QUALITY=-ql \
+    EXPLAINER_PREVIEW_QUALITY=-qm \
     EXPLAINER_MAX_CONCURRENT=1
 
 COPY backend/ ./

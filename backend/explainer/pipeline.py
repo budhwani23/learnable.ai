@@ -23,6 +23,7 @@ Differences from the CLI version:
   * LLM-generated code passes a static safety check before it is executed
 """
 import json
+import logging
 import os
 import pprint
 import re
@@ -31,6 +32,7 @@ import subprocess
 import sys
 import time
 import wave
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
@@ -39,9 +41,11 @@ from google.genai import types
 
 from core import cerebras
 
+from . import tts
 from .code_safety import check_scene_code
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 # ─── Config (env-overridable) ─────────────────────────────────────────
 
@@ -53,6 +57,11 @@ MAX_FIX_ATTEMPTS = int(os.getenv("EXPLAINER_MAX_FIX_ATTEMPTS", "5"))
 MAX_QA_PASSES = int(os.getenv("EXPLAINER_MAX_QA_PASSES", "1"))
 ENABLE_VISUAL_QA = os.getenv("EXPLAINER_VISUAL_QA", "true").lower() in ("1", "true", "yes")
 NARR_BUFFER = 0.4
+# A render shorter than this share of the narration is treated as broken and repaired.
+MIN_LENGTH_RATIO = float(os.getenv("EXPLAINER_MIN_LENGTH_RATIO", "0.6"))
+# Check generated code with a fast "manim --dry_run" before each full render.
+DRY_RUN_FIRST = os.getenv("EXPLAINER_DRY_RUN", "true").lower() in ("1", "true", "yes")
+DRY_RUN_TIMEOUT = int(os.getenv("EXPLAINER_DRY_RUN_TIMEOUT", "180"))
 RENDER_TIMEOUT = int(os.getenv("EXPLAINER_RENDER_TIMEOUT", "1200"))  # seconds per render
 
 PREVIEW_FLAGS = [os.getenv("EXPLAINER_PREVIEW_QUALITY", "-qm")]   # 720p30 by default
@@ -133,6 +142,20 @@ self.play(mean_line.animate.set_opacity(1),
           *[b.animate.stretch(1.4, dim=1) for b in bars], run_time=dur * 0.6)
 '''
 
+# Old Manim / ManimGL APIs that models often write but Manim CE v0.19 rejects.
+MANIM_API_PITFALLS = """MANIM CE v0.19 API (these old names crash; use the CE form):
+- axes.get_graph(f, x_min=a, x_max=b)  ->  axes.plot(f, x_range=[a, b])
+- Axes(x_min=..., x_max=..., y_min=..., y_max=...)  ->  Axes(x_range=[a, b, step], y_range=[c, d, step])
+- NumberPlane(x_min=...)  ->  NumberPlane(x_range=[a, b, step], y_range=[c, d, step])
+- ShowCreation(m) -> Create(m);  ShowCreationThenDestruction -> ShowPassingFlash
+- TextMobject / TexMobject / TexText -> Text / MathTex / Tex;  FadeInFrom(m, LEFT) -> FadeIn(m, shift=RIGHT)
+- GrowArrow needs an Arrow; Circumscribe/Indicate take a mobject, not a list
+- self.add_sound is called only via self.narrate(N); never call self.wait(0) or run_time=0
+- VGroup(...) holds VMobjects only (use Group for ImageMobject/Mobject mixes)
+- .move_to / .next_to targets must be a mobject or a 3D point like RIGHT * 2 or np.array([x, y, 0])
+- Every name you use must be defined in construct (no undefined helper variables)"""
+
+
 _UNICODE_SUBS = [
     ("−", "-"), ("–", "-"), ("—", "-"),
     ("→", "->"), ("←", "<-"), ("≈", "~"),
@@ -212,10 +235,22 @@ class ExplainerPipeline:
             lambda: self.client.models.generate_content(model=MODEL, contents=contents, config=config),
             "Gemini request")
 
-    def _cerebras(self, contents, *, json_mode: bool = False) -> str:
+    def _cerebras(self, contents, *, json_mode: bool = False, code: bool = False) -> str:
         """Prompt on Cerebras (e.g. qwen-3.8-27b): text, or OpenAI-style text + image_url parts."""
+        # qwen's default reasoning can spend 25k+ hidden tokens on a scene and run out
+        # before writing any code (empty scene -> 0.03 s video), so the effort is set
+        # explicitly. Code steps think harder (Manim API correctness matters most there)
+        # with a token limit large enough for that; Cerebras keeps them to seconds.
+        if code:
+            effort = os.getenv("EXPLAINER_CODE_REASONING_EFFORT", "high")
+            max_tokens = int(os.getenv("EXPLAINER_CODE_MAX_TOKENS", "40000"))
+        else:
+            effort = os.getenv("EXPLAINER_REASONING_EFFORT", "medium")
+            max_tokens = None
         return self._with_retry(
-            lambda: cerebras.chat(contents, json_mode=json_mode, attempts=1), "Cerebras request")
+            lambda: cerebras.chat(contents, json_mode=json_mode, attempts=1,
+                                  reasoning_effort=effort, max_tokens=max_tokens),
+            "Cerebras request")
 
     @staticmethod
     def _use_cerebras(contents) -> bool:
@@ -226,9 +261,10 @@ class ExplainerPipeline:
         return isinstance(contents, str) or (
             isinstance(contents, list) and bool(contents) and isinstance(contents[0], dict))
 
-    def _text(self, contents, **kw) -> str:
+    def _text(self, contents, *, code: bool = False, **kw) -> str:
+        """Plain-text completion; `code=True` marks Manim code-writing steps."""
         if self._use_cerebras(contents):
-            return self._cerebras(contents)
+            return self._cerebras(contents, code=code)
         return (self._generate(contents, **kw).text or "").strip()
 
     def _json(self, contents) -> Any:
@@ -380,8 +416,20 @@ Rules:
     # ── Step 2: TTS ───────────────────────────────────────────────────
 
     def tts_segment(self, text: str, seg_id: int) -> str:
+        """Narrate one beat to a 24 kHz WAV: local Kokoro first, Gemini TTS as fallback."""
         os.makedirs(self.segments_dir, exist_ok=True)
         wav_path = os.path.join(self.segments_dir, f"seg_{seg_id}.wav")
+        if tts.provider() == "kokoro":
+            try:
+                return tts.synthesize(text, wav_path)
+            except tts.TTSError as exc:
+                if not (os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")):
+                    raise PipelineError(f"Narration for beat {seg_id} failed: {exc}") from exc
+                logger.warning("Local narration failed for beat %s, using Gemini TTS: %s", seg_id, exc)
+        return self._gemini_tts(text, seg_id, wav_path)
+
+    def _gemini_tts(self, text: str, seg_id: int, wav_path: str) -> str:
+        """Narrate one beat with Gemini TTS (free tier allows only ~10 requests a day)."""
         config = types.GenerateContentConfig(
             response_modalities=["AUDIO"],
             speech_config=types.SpeechConfig(
@@ -466,6 +514,8 @@ STORYBOARD (one beat per narration segment):
 
 {REFERENCE_SNIPPETS}
 
+{MANIM_API_PITFALLS}
+
 OUTPUT CONTRACT — return ONLY Python, no markdown fences:
 - Write `class GeneratedScene(NarratedScene):` with a `construct(self)` method.
 - Do NOT write `from manim import *`; do NOT define NARRATION or NarratedScene;
@@ -507,9 +557,29 @@ VISUAL QUALITY:
 
 Make it feel authored, not templated.
 """
-        return _clean_code(self._text(prompt))
+        return _clean_code(self._text(prompt, code=True))
 
     # ── Step 4: render with crash auto-fix ────────────────────────────
+
+    def dry_run_manim(self) -> Tuple[bool, str]:
+        """
+        Run the scene's Python without drawing frames (manim --dry_run). Crashes in the
+        generated code show up in seconds instead of after a full render, so each failed
+        repair attempt costs almost nothing. Returns (ok, error text).
+        """
+        cmd = [_manim_python(), "-m", "manim", "--dry_run", "--media_dir", self.media_dir,
+               self.scene_path, "GeneratedScene"]
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                                    errors="replace", cwd=self.work_dir, env=env,
+                                    timeout=DRY_RUN_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            # Too slow to even simulate: likely a runaway loop; let the full render decide.
+            return True, ""
+        if result.returncode == 0:
+            return True, ""
+        return False, (result.stderr or "") + "\n" + (result.stdout or "")
 
     def run_manim(self, flags: List[str]) -> Tuple[bool, str, Optional[str]]:
         qdir = next((QUALITY_DIRS[f] for f in flags if f in QUALITY_DIRS), "1080p60")
@@ -539,6 +609,8 @@ Make it feel authored, not templated.
 {error[-4000:]}
 --- END ---
 
+{MANIM_API_PITFALLS}
+
 Return ONLY the corrected `class GeneratedScene(NarratedScene):` — no fences, no
 `from manim import *`, and do NOT redefine NARRATION or NarratedScene.
 - Preserve every `self.narrate(N)` / `self.fill(N, ...)` call and their order.
@@ -547,7 +619,23 @@ Return ONLY the corrected `class GeneratedScene(NarratedScene):` — no fences, 
 - Pure animation code only: no file/OS/network access and no imports besides numpy/math/random.
 - Keep all objects within x in +/-7, y in +/-4.
 """
-        return _clean_code(self._text(prompt))
+        return _clean_code(self._text(prompt, code=True))
+
+    def _too_short(self, video: str, manifest) -> str:
+        """
+        Return an error for the fix loop if the render is far shorter than its narration
+        (e.g. a scene that adds sounds but plays no animations renders one frame, 0.03 s).
+        """
+        expected = sum(float(m["duration"]) for m in manifest)
+        if not self.has_ffmpeg or expected <= 0:
+            return ""
+        actual = self.video_duration(video)
+        if actual >= MIN_LENGTH_RATIO * expected:
+            return ""
+        return (f"The rendered video is only {actual:.2f}s long but the narration lasts {expected:.1f}s. "
+                f"Every beat must play animations whose run_time values (plus waits) add up to the "
+                f"`dur` returned by self.narrate(N): use self.play(..., run_time=dur * fraction) or "
+                f"self.fill(N, ...). Never call self.narrate(N) without playing animations for that beat.")
 
     def render_with_autofix(self, scene_code: str, manifest, flags,
                             pct_range: Tuple[int, int], label: str) -> Tuple[str, Optional[str]]:
@@ -557,14 +645,24 @@ Return ONLY the corrected `class GeneratedScene(NarratedScene):` — no fences, 
             self.report("rendering", pct, f"{label} (attempt {attempt}/{MAX_FIX_ATTEMPTS})")
 
             violations = check_scene_code(scene_code)
-            if violations:
+            if "class GeneratedScene" not in scene_code:
+                err = ("No scene code was returned. Write the complete "
+                       "`class GeneratedScene(NarratedScene):` with its construct(self) method.")
+                ok, video = False, None
+            elif violations:
                 err = ("Code rejected by safety check — remove these constructs:\n"
                        + "\n".join(f"- {v}" for v in violations))
                 ok, video = False, None
             else:
                 with open(self.scene_path, "w", encoding="utf-8") as f:
                     f.write(self.build_scene_file(scene_code, manifest))
-                ok, err, video = self.run_manim(flags)
+                ok, err = self.dry_run_manim() if DRY_RUN_FIRST else (True, "")
+                video = None
+                if ok:
+                    ok, err, video = self.run_manim(flags)
+                if ok:
+                    err = self._too_short(video, manifest)
+                    ok = not err
 
             if ok:
                 # Manim reuses the same output path for every render at a given
@@ -675,12 +773,14 @@ full duration (a single long run_time, or a ValueTracker / always_redraw).
 When fixing layout/overlap: use relative positioning (.next_to buff>=0.4, VGroup.arrange),
 keep everything within x in +/-7 and y in +/-4.
 
+{MANIM_API_PITFALLS}
+
 Return ONLY the corrected class — no fences.
 
 --- SCENE CODE ---
 {scene_code}
 """
-        return _clean_code(self._text(prompt))
+        return _clean_code(self._text(prompt, code=True))
 
     def assess_video(self, brief: str, video: str, beats) -> Tuple[list, dict, float]:
         freezes = self.detect_static_stretches(video)
@@ -708,15 +808,26 @@ Return ONLY the corrected class — no fences.
         self.report("storyboard", 16, "Storyboarding the scenes...")
         beats = self.generate_storyboard(brief, style)
 
-        manifest = []
-        for idx, b in enumerate(beats):
-            self.report("narration", 20 + int(15 * idx / len(beats)),
-                        f"Recording narration ({idx + 1}/{len(beats)})...")
-            wav = self.tts_segment(b["narration"], b["id"])
-            manifest.append({"id": b["id"], "file": wav, "duration": self.wav_duration(wav) + NARR_BUFFER})
+        def narrate_all() -> List[Dict[str, Any]]:
+            manifest = []
+            try:
+                for idx, b in enumerate(beats):
+                    self.report("narration", 20 + int(15 * idx / len(beats)),
+                                f"Recording narration and writing the animation ({idx + 1}/{len(beats)})...")
+                    wav = self.tts_segment(b["narration"], b["id"])
+                    manifest.append({"id": b["id"], "file": wav,
+                                     "duration": self.wav_duration(wav) + NARR_BUFFER})
+            finally:
+                tts.release()  # free the local voice model before rendering (memory-tight hosts)
+            return manifest
 
-        self.report("animating", 38, "Writing the animation code...")
-        scene_code = self.generate_scene_code(brief, beats, style)
+        # The scene code only needs the storyboard; beat durations are injected at render
+        # time. So narration (CPU) and code writing (network) run at the same time.
+        with ThreadPoolExecutor(max_workers=1, thread_name_prefix="narration") as pool:
+            narration = pool.submit(narrate_all)
+            scene_code = self.generate_scene_code(brief, beats, style)
+            manifest = narration.result()
+        self.report("animating", 38, "Narration and animation code ready...")
 
         scene_code, video = self.render_with_autofix(scene_code, manifest, PREVIEW_FLAGS,
                                                      (40, 58), "Rendering preview")
@@ -751,9 +862,14 @@ Return ONLY the corrected class — no fences.
             except PipelineError:
                 pass  # QA is best-effort; keep the working preview
 
-        self.report("finalizing", 82, "Rendering the final high-quality video...")
-        _, final = self.render_with_autofix(scene_code, manifest, FINAL_FLAGS,
-                                            (82, 97), "Final render")
+        if PREVIEW_FLAGS == FINAL_FLAGS:
+            # The preview is already at final quality: re-rendering the same code at the
+            # same settings would produce the same video, so use it directly.
+            final = video
+        else:
+            self.report("finalizing", 82, "Rendering the final high-quality video...")
+            _, final = self.render_with_autofix(scene_code, manifest, FINAL_FLAGS,
+                                                (82, 97), "Final render")
         return {
             "video_path": final or video,
             "title": title,
