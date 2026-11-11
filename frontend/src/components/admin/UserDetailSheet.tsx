@@ -195,10 +195,10 @@ export default function UserDetailSheet({ userId, onClose, onChanged }: {
                     return (
                       <TableRow key={r.id}>
                         <TableCell>{r.label}</TableCell>
-                        <TableCell className={`text-right font-medium ${c.remaining === 0 ? "text-red-600" : ""}`}
-                                   data-testid={`detail-credits-${r.id}`}>{c.remaining}</TableCell>
+                        <TableCell className={`text-right font-medium ${c.remaining === 0 && !c.unlimited ? "text-red-600" : ""}`}
+                                   data-testid={`detail-credits-${r.id}`}>{c.unlimited ? "∞" : c.remaining}</TableCell>
                         <TableCell className="text-right">{c.used}</TableCell>
-                        <TableCell className="text-right">{c.limit}</TableCell>
+                        <TableCell className="text-right">{c.unlimited ? "∞" : c.limit}</TableCell>
                         <TableCell className="text-right text-muted-foreground">{u.usage[r.id]?.refunded ?? 0}</TableCell>
                       </TableRow>
                     );

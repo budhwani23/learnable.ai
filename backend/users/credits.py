@@ -5,6 +5,9 @@ Every user gets DEFAULT_CREDITS_PER_RESOURCE (3) credits for each resource type
 (summary, mindmap, quiz, flashcards, video, slides). A credit is reserved atomically
 before a generation starts, so concurrent requests can't overspend, and given back
 (refunded) if the generation fails. Admins top up by raising the limit or resetting usage.
+
+Admins (staff users) have unlimited credits: their generations are still recorded as
+usage events (so stats stay accurate) but never count against or are blocked by a limit.
 """
 import functools
 import logging
@@ -39,12 +42,29 @@ def _check_type(resource_type: str) -> None:
         raise ValueError(f"Unknown resource type '{resource_type}'")
 
 
+def is_unlimited(user: User) -> bool:
+    """Admins (staff) are never charged or limited."""
+    return bool(getattr(user, "is_staff", False))
+
+
 def credit_summary(user: User) -> Dict[str, Dict[str, int]]:
-    """{type: {limit, used, remaining}} for every resource type (defaults for missing rows)."""
+    """
+    {type: {limit, used, remaining, unlimited}} for every resource type (defaults for
+    missing rows). For admins `unlimited` is true and `used` counts their generations.
+    """
     default = default_credit_limit()
-    out = {t: {"limit": default, "used": 0, "remaining": default} for t in RESOURCE_TYPE_IDS}
+    unlimited = is_unlimited(user)
+    out = {t: {"limit": default, "used": 0, "remaining": default, "unlimited": unlimited}
+           for t in RESOURCE_TYPE_IDS}
     for a in CreditAllowance.objects.filter(user=user):
-        out[a.resource_type] = {"limit": a.limit, "used": a.used, "remaining": a.remaining}
+        out[a.resource_type] = {"limit": a.limit, "used": a.used, "remaining": a.remaining,
+                                "unlimited": unlimited}
+    if unlimited:
+        used = {}
+        for e in UsageEvent.objects.filter(user=user, refunded=False).values_list("resource_type", flat=True):
+            used[e] = used.get(e, 0) + 1
+        for t in RESOURCE_TYPE_IDS:
+            out[t]["used"] = used.get(t, 0)
     return out
 
 
@@ -56,8 +76,11 @@ def _locked_allowance(user: User, resource_type: str) -> CreditAllowance:
 
 @transaction.atomic
 def consume(user: User, resource_type: str, ref: str = "") -> UsageEvent:
-    """Use one credit. Raises OutOfCredits when none are left."""
+    """Use one credit. Raises OutOfCredits when none are left. Admins are never charged."""
     _check_type(resource_type)
+    if is_unlimited(user):
+        # Record the generation for stats, without touching or checking the allowance.
+        return UsageEvent.objects.create(user=user, resource_type=resource_type, ref=ref[:200])
     allowance = _locked_allowance(user, resource_type)
     if allowance.used >= allowance.limit:
         raise OutOfCredits(resource_type, allowance.limit)
@@ -74,6 +97,11 @@ def refund(event_id: Optional[int]) -> bool:
     event = UsageEvent.objects.select_for_update().filter(id=event_id, refunded=False).first()
     if not event:
         return False
+    if is_unlimited(event.user):
+        # Admin generations never used an allowance credit, so only mark the event.
+        event.refunded = True
+        event.save(update_fields=["refunded"])
+        return True
     allowance = _locked_allowance(event.user, event.resource_type)
     allowance.used = max(0, allowance.used - 1)
     allowance.save(update_fields=["used", "updated_at"])

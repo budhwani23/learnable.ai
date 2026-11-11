@@ -15,6 +15,7 @@ import { RESOURCE_TYPES } from "@/lib/types";
 const Header = () => {
   const { pathname } = useLocation();
   const { user, logout, isApproved, isAdmin } = useAuth();
+  const unlimited = !!user && RESOURCE_TYPES.some((t) => user.credits?.[t.id]?.unlimited);
   const totalLeft = user ? RESOURCE_TYPES.reduce((n, t) => n + (user.credits?.[t.id]?.remaining ?? 0), 0) : 0;
   const navigate = useNavigate();
   const isHome = pathname === "/";
@@ -72,9 +73,9 @@ const Header = () => {
                   <Popover>
                     <PopoverTrigger asChild>
                       <Button size="sm" variant="outline" className="rounded-full h-8 gap-1.5" data-testid="credits-button"
-                              aria-label={`${totalLeft} credits left`}>
+                              aria-label={unlimited ? "Unlimited credits" : `${totalLeft} credits left`}>
                         <Coins className="h-4 w-4 text-amber-500" />
-                        <span>{totalLeft}</span>
+                        <span>{unlimited ? "∞" : totalLeft}</span>
                         <span className="hidden md:inline text-gray-500">credits</span>
                       </Button>
                     </PopoverTrigger>
@@ -88,14 +89,16 @@ const Header = () => {
                           return (
                             <li key={t.id} className="flex items-center justify-between text-sm">
                               <span className="text-gray-700">{t.label}</span>
-                              <span className={left === 0 ? "text-red-600 font-medium" : "text-gray-900 font-medium"}>
-                                {left} / {c?.limit ?? 0}
+                              <span className={left === 0 && !c?.unlimited ? "text-red-600 font-medium" : "text-gray-900 font-medium"}>
+                                {c?.unlimited ? `Unlimited · ${c.used} used` : `${left} / ${c?.limit ?? 0}`}
                               </span>
                             </li>
                           );
                         })}
                       </ul>
-                      <p className="mt-3 text-xs text-gray-500">Need more? Ask an administrator to top up your credits.</p>
+                      <p className="mt-3 text-xs text-gray-500">
+                        {unlimited ? "As an admin you have unlimited credits." : "Need more? Ask an administrator to top up your credits."}
+                      </p>
                     </PopoverContent>
                   </Popover>
                 )}

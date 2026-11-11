@@ -104,14 +104,17 @@ def _user_row(user: User, credit_map=None) -> dict:
 
 def _credit_maps(users: List[User]) -> dict:
     """
-    Build {user_id: {resource_type: {limit, used, remaining}}} for `users` in one query,
-    filling in the default allowance for missing rows.
+    Build {user_id: {resource_type: {limit, used, remaining, unlimited}}} for `users` in one
+    query, filling in the default allowance for missing rows. Admins are marked unlimited.
     """
     default = credits.default_credit_limit()
-    out = {u.id: {t: {"limit": default, "used": 0, "remaining": default} for t in RESOURCE_TYPE_IDS}
+    unlimited = {u.id for u in users if credits.is_unlimited(u)}
+    out = {u.id: {t: {"limit": default, "used": 0, "remaining": default, "unlimited": u.id in unlimited}
+                  for t in RESOURCE_TYPE_IDS}
            for u in users}
     for a in CreditAllowance.objects.filter(user_id__in=out.keys()):
-        out[a.user_id][a.resource_type] = {"limit": a.limit, "used": a.used, "remaining": a.remaining}
+        out[a.user_id][a.resource_type] = {"limit": a.limit, "used": a.used, "remaining": a.remaining,
+                                           "unlimited": a.user_id in unlimited}
     return out
 
 
